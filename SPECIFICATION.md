@@ -938,9 +938,11 @@ Normative rules:
   absent the Host **MUST** apply a deny-all default. Network egress is limited to the
   manifest's `sandbox.network` ∩ `csp.connect-src`.
 - **Every action a UI initiates is a capability call through the Gateway.** A UI
-  **MUST NOT** invoke a capability that is not in its declared `host_actions`, and
-  each such call is subject to the full policy/grant/plan-apply pipeline (§6–§9). A
-  UI cannot escalate beyond what its host capability could already do.
+  **MUST NOT** invoke a capability that is not in its declared `host_actions`; such an
+  attempt **MUST** be denied with `SANDBOX_VIOLATION` (§23, "action outside the
+  declared allowlist"). Every permitted UI action is subject to the full
+  policy/grant/plan-apply pipeline (§6–§9). A UI cannot escalate beyond what its host
+  capability could already do.
 - Data the UI renders is labeled `untrusted_tool_result` (§12); a UI **MUST NOT** be
   treated as a source of authority. `model_visible: false` hides a UI-only control
   (e.g. a refresh button) from the Planner entirely.
