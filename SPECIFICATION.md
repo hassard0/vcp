@@ -331,6 +331,13 @@ Notes that eliminate the common ambiguities:
 - Changing any of the eight — a schema field, an effect class, a sandbox allowlist
   entry, an attestation requirement — yields a different `contract_hash` and therefore
   a new, unapproved capability (INV-2).
+- **Execution-defining blocks are identity-bearing.** When a capability declares a
+  block that determines *what actually runs*, that block is part of the contract:
+  specifically, a `command` capability's `command` block (§28 — `binary`,
+  `exec_digest`, `argv_template`, `working_dir`, `provenance`, `subcommand_allow`) is
+  appended to the contract object, so a changed binary digest or argv template yields a
+  new `capability_id` (§28.4). (An `interface` capability's UI integrity is instead
+  enforced at render time by verifying `content_hash`, §22.)
 
 A worked, regenerable ground-truth example (the `calendar.create_event` contract and
 its `sha256:6706…` hash) is published as the `capability-identity` conformance vector
@@ -352,6 +359,7 @@ state       explicit, typed, expiring handle for cross-call state
 event       subscription or notification stream
 task        long-running, grant-bound asynchronous execution handle (§21)
 interface   signed, sandboxed user-interface surface (§22)
+command     content-addressed CLI/command invocation, argv-typed, sandboxed (§28)
 ```
 
 > **VCP-vs-MCP:** MCP carries cross-call state in implicit transport sessions. VCP
@@ -971,10 +979,13 @@ Each test asserts that the attack is **rejected, contained, or made auditable**.
 | 17 | **Cross-subject task access** — `tasks/get` by a subject that does not own it (§21) | Subject-scoped ⇒ `SUBJECT_MISMATCH` |
 | 18 | **UI artifact swap** — interface bytes differ from `content_hash` (§22) | Content-address verify ⇒ `INTERFACE_HASH_MISMATCH` |
 | 19 | **Unattested provider** — capability requires attestation but none/forged presented (§27) | `ATTESTATION_REQUIRED` / `ATTESTATION_INVALID` ⇒ no grant minted |
+| 20 | **Command/shell injection** — a `command` parameter contains shell metacharacters (`; rm -rf /`) (§28) | Argv-only execution; value is one literal argv element; no shell; no extra command |
+| 21 | **Command path escape** — a path parameter points outside the sandbox allowlist (§28.2) | `SANDBOX_VIOLATION` ⇒ refused |
+| 22 | **Command rug pull** — bridged binary digest changes after approval (§28.4) | New `exec_digest` ⇒ new identity ⇒ rejected until re-approved |
 
-Tests 1–12 exercise the core (VCP-L1/L2). Tests 13–19 exercise the `2026-06-13`
-surfaces (multi-provider OBO, tasks, interfaces, environment attestation). Conformance
-vectors for all are published under `vcp-servers/conformance`.
+Tests 1–12 exercise the core (VCP-L1/L2). Tests 13–22 exercise the `2026-06-13`
+surfaces (multi-provider OBO, tasks, interfaces, environment attestation, CLI/command
+execution). Conformance vectors for all are published under `vcp-servers/conformance`.
 
 ---
 
@@ -1360,6 +1371,131 @@ layer itself.
 
 ---
 
+## 28. Command and CLI Capabilities (`VCP-CLI`)
+
+LLM agents increasingly act through the command line: they run CLIs, edit
+configuration, and drive infrastructure — both by operating **ordinary existing CLIs**
+(`git`, `kubectl`, `aws`, `gh`, `npm`, `terraform`) and by using the CLI as a
+**configuration medium** (declarative apply, dotfiles, IaC). "Run a shell command" is
+also the single highest-risk capability pattern there is — OWASP LLM06 *excessive
+agency* composed with CWE-78 *command injection* — and the danger is structural: the
+agent processes untrusted input (file contents, PR comments, prior tool output) in the
+**same runtime** that holds command execution and secrets, and the command is a
+**shell string** an injection can rewrite. VCP makes CLI use a first-class capability
+that is safe by construction.
+
+> **VCP-vs-status-quo:** Today's agent CLIs (Claude Code, Codex, Gemini CLI, Cline)
+> gate shell with allow/deny *patterns* plus an OS sandbox plus human approval — a
+> genuinely good model VCP builds on. But the command stays a shell string an
+> injection can rewrite, and the allowlist is **host-local settings**, not a signed
+> contract. VCP makes the command a **content-addressed, argv-typed capability**:
+> there is no shell to inject into, the exact argv is bound to a single-use grant, the
+> sandbox is declared in a signed manifest, and output is tainted so attacker text
+> cannot authorize the next command.
+
+### 28.1 The argv model — no shell, ever
+
+A `command` capability (§5.1) declares a `binary` (path or name, with an OPTIONAL
+pinned `exec_digest`), a typed **`argv_template`** (an ordered list of literal tokens
+and typed `{param}` holes, each with a JSON Schema), and the usual `effects`,
+`determinism`, and `sandbox` blocks. Normatively:
+
+1. **No shell.** The Gateway **MUST** execute by directly `exec`-ing `binary` with an
+   argv **array** built from the template. It **MUST NOT** pass the command to a shell
+   (`/bin/sh -c`, `cmd /c`, PowerShell), and **MUST NOT** perform shell interpolation,
+   globbing, quoting, or word-splitting on parameter values. This eliminates CWE-78
+   shell injection *by construction*: a parameter value such as
+   `"; rm -rf / #"` becomes one literal argv element passed to the program, never a
+   new command. A genuine pipeline is modelled as separate `command` capabilities
+   composed in a plan, not a shell string.
+2. **Each parameter is exactly one argv element.** A `{param}` value is never
+   re-split, re-quoted, or expanded; it occupies a single argv slot. Path and host
+   parameters **SHOULD** be constrained by allowlist or pattern so a value cannot
+   escape the sandbox scope (`SANDBOX_VIOLATION`).
+3. **Argv binding.** The `argument_hash` (§7) is computed over the fully-resolved argv
+   array; the grant binds it. A hijacked Planner cannot add, remove, or alter a token
+   after approval without invalidating the grant (`ARGUMENT_HASH_MISMATCH`).
+4. **Strict parameter typing** (`additionalProperties:false`, §5, §8). An undeclared
+   parameter is rejected (`ADDITIONAL_PROPERTY`); a mistyped one
+   (`SCHEMA_VALIDATION_FAILED`).
+
+### 28.2 Sandbox (extends §14)
+
+Outside the `dev` profile a command **MUST** run in an OS sandbox with: a **filesystem
+allowlist** (default: the working tree only; deny credential stores — `~/.ssh`,
+`~/.aws`, `~/.config/gh`, keychains), a **network egress allowlist** (default deny),
+**no inherited environment**, and secrets supplied only through the broker (§7, §14).
+On Linux this **SHOULD** be Landlock + seccomp-bpf + user namespaces; on macOS, a
+Seatbelt profile. Because shared-kernel isolation is not sufficient for execution that
+untrusted input can influence, **L4** deployments **SHOULD** use a microVM / gVisor /
+WASM boundary (RFC 0009).
+
+### 28.3 Effect classes and the CLI as a configuration medium
+
+Commands map onto the effect classes (§11):
+
+```
+read-only          git status, kubectl get, ls, terraform plan   → MAY auto-run under policy
+write-idempotent   kubectl apply, terraform apply, helm upgrade    → SHOULD support dry-run
+write-reversible   commands with a declared compensating command   → MUST declare it
+write-irreversible rm, prod deploy, DROP, force-push                → highest approval tier
+```
+
+For the **configuration-medium** use, VCP **RECOMMENDS** the declarative, idempotent
+pattern: the *desired state* is the typed argument and the CLI is an idempotent
+executor (`write-idempotent`), so the change is **dry-runnable** (`--dry-run`,
+`terraform plan`, `kubectl diff`) and **replayable** with an idempotency key (§10).
+Mutating commands use plan/apply (§9) with the CLI's native dry-run as the
+user-visible diff. For irreversible infrastructure, a **GitOps / PR-mediated** flow
+**SHOULD** be preferred: the command writes a change to a reviewed branch rather than
+mutating production directly.
+
+### 28.4 Operating existing CLIs — the command bridge
+
+Most agent CLI use today is an agent driving an **ordinary CLI that has no VCP
+manifest**. VCP wraps this exactly as it wraps MCP servers (§16): a **command bridge**
+turns an existing binary into a constrained `command` capability without modifying it.
+
+A command bridge **MUST**:
+
+- **Pin the binary's identity** by `exec_digest` (the hash of the resolved
+  executable). If the binary on disk changes, the digest no longer matches and the
+  capability is a new, unapproved identity (rug-pull defense, §4) — closing the gap
+  that a host-local allowlist leaves open.
+- **Express the allowlist as a signed contract, not local settings.** A pattern such
+  as `git commit …` or `kubectl get …` becomes a content-addressed `command`
+  capability with a typed `argv_template` and a subcommand/flag allowlist; approving
+  it approves *that* contract, hash and all — not "bash".
+- Apply §28.1–28.3 in full: argv-only execution, sandbox, effect class, dry-run for
+  writes.
+- Mark provenance `host_cli` and require a policy decision for every non-`read-only`
+  command.
+
+This gives agents the existing-CLI ergonomics they rely on, but with the shell string,
+the unsigned allowlist, and the ambient filesystem/credentials all removed.
+
+### 28.5 Tainted output contains the documented attacks
+
+A command's `stdout`/`stderr` are labelled `untrusted_tool_result` (§12), and any file
+content, PR comment, or issue body the agent reads is `untrusted_resource_data`. By
+INV-6 such data **can never authorize** a command. This is the structural defense
+against the documented class of attacks where a prompt injection hidden in a PR
+comment or file makes an agent run an attacker's command: the injected text can shape a
+*typed parameter within schema*, but it cannot authorize a *new* command capability,
+cannot escape the argv template into a shell, and cannot widen the sandbox. The
+Planner can be fooled into proposing; the Gateway refuses to authorize.
+
+### 28.6 Attestation and audit
+
+The result attestation (§9) records the resolved argv, working directory, **exit
+code**, and an output hash; a non-zero exit is a result, not a silent failure. Each
+execution emits a signed audit event (§20) carrying the resolved argv, cwd, exit code,
+output hash, sandbox-profile id, and (for bridged binaries) the `exec_digest` and
+`host_cli` provenance — so "which agent, on whose behalf, ran which exact command,
+where, and with what result" is always answerable.
+
+---
+
 ## Appendix A — Conformance summary
 
 - Identity is the contract hash (§4). Approvals bind to identity, never name.
@@ -1402,6 +1538,7 @@ VCP tracks the good ideas MCP converged on and hardens the trust boundary at eac
 | Data flow | Not modeled | Taint labels; authority never flows from tainted data; data-flow policy (§12) |
 | Multi-provider | Isolated per-server trust; shadowing/confused-deputy risk | First-class fan-out: per-provider token exchange (RFC 8693), OBO delegation chain, one approval / many scoped grants (§26) |
 | Runtime integrity | None — servers/clients trusted as installed software | Optional, layered **environment attestation** (RFC 9334): off by default, cheap signed statement, hardware TEE at L4 (§27) |
+| Agent CLI / shell use | Host-local allow/deny shell-string patterns + OS sandbox | Argv-typed **`command` capabilities**: no shell to inject into, signed digest-pinned contract, grant-bound argv, tainted output, command bridge for existing CLIs (§28) |
 
 ## Appendix D — Worked multi-provider example (on-behalf-of fan-out)
 

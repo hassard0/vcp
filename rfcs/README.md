@@ -39,9 +39,10 @@ RFCs are numbered sequentially with a zero-padded 4-digit prefix
 | [0006](./0006-async-task-resumability.md) | Async Task Resumability & Replay | Draft | §10, §21 |
 | [0007](./0007-obo-token-exchange.md) | On-Behalf-Of Token Exchange Profile | Draft | §7, §15, §26 |
 | [0008](./0008-tee-remote-attestation.md) | TEE Remote-Attestation Tier | Draft | §27, L4 |
+| [0009](./0009-command-sandbox-tiers.md) | Command Sandbox Tiers | Draft | §14, §28, L2–L4 |
 
 RFCs 0001–0004 are items deliberately deferred out of the v0.1 normative core (see
-[`docs/design`](../docs/design)). RFCs 0005–0008 detail the wire mechanics behind the
+[`docs/design`](../docs/design)). RFCs 0005–0009 detail the wire mechanics behind the
 `2026-06-13` additions (interface capabilities, async tasks, multi-provider
-on-behalf-of delegation, and the hardware tier of environment attestation). All are
-open for discussion.
+on-behalf-of delegation, the hardware tier of environment attestation, and command
+sandbox tiers). All are open for discussion.

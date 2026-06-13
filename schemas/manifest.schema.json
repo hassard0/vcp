@@ -132,6 +132,38 @@
             },
             "model_visible": { "type": "boolean", "default": false, "description": "false ⇒ UI-only control hidden from the Planner." }
           }
+        },
+        "command": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Present for kind=command (§28). A content-addressed, argv-typed CLI invocation. NEVER executed via a shell; the Gateway exec's `binary` with the resolved argv array.",
+          "required": ["binary", "argv_template", "shell"],
+          "properties": {
+            "binary": { "type": "string", "description": "Executable path or name." },
+            "exec_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "Pinned hash of the resolved executable (§28.4). A changed binary is a new identity." },
+            "shell": { "const": false, "description": "MUST be false. VCP never passes commands to a shell (§28.1)." },
+            "argv_template": {
+              "type": "array",
+              "description": "Ordered argv tokens. A literal token is a string; a typed hole is {param, schema}. Each param value occupies exactly one argv element and is never re-split or shell-expanded.",
+              "items": {
+                "oneOf": [
+                  { "type": "string", "description": "Literal argv token." },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["param", "schema"],
+                    "properties": {
+                      "param": { "type": "string" },
+                      "schema": { "type": "object", "description": "JSON Schema for this parameter's value; SHOULD constrain paths/hosts to the sandbox scope." }
+                    }
+                  }
+                ]
+              }
+            },
+            "working_dir": { "type": "string", "description": "Working directory; MUST be within sandbox.filesystem allowlist." },
+            "provenance": { "enum": ["authored", "host_cli"], "default": "authored", "description": "host_cli marks a bridged existing CLI (§28.4)." },
+            "subcommand_allow": { "type": "array", "items": { "type": "string" }, "description": "For bridged CLIs: the allowed subcommand/flag patterns, as a signed contract rather than host-local settings." }
+          }
         }
       }
     },
@@ -155,7 +187,7 @@
       "enum": ["pure", "snapshot-read", "external-read", "idempotent-write", "nondeterministic"]
     },
     "capabilityKind": {
-      "enum": ["tool", "resource", "prompt", "workflow", "state", "event", "task", "interface"]
+      "enum": ["tool", "resource", "prompt", "workflow", "state", "event", "task", "interface", "command"]
     },
     "signature": {
       "type": "object",

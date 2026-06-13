@@ -77,6 +77,18 @@ identified, without changing any v0.1 conformance vector.
   (RFC 9334 RATS) for L4. New `schemas/environment-attestation.schema.json`,
   `effects.requires_attestation` flag, `grant.attestation_ref`, audit
   `attestation_ref`, reason code `ATTESTATION_REQUIRED`, security test 19, RFC 0008.
+- **§28 Command and CLI Capabilities (`VCP-CLI`)** — first-class, safe coverage for
+  LLM agents that act through the command line, both operating ordinary existing CLIs
+  and using the CLI as a configuration medium. A `command` capability is
+  content-addressed and **argv-typed**: the Gateway `exec`s the binary with a resolved
+  argv array and **never** uses a shell, so shell injection (CWE-78) is impossible by
+  construction; the exact argv is grant-bound; the sandbox (Landlock/seccomp/Seatbelt,
+  microVM at L4) is declared in a signed manifest, not host-local settings; command
+  output is tainted so attacker-controlled text cannot authorize the next command; and
+  a **command bridge** wraps existing CLIs by pinning the binary digest and a signed
+  subcommand allowlist. Declarative/dry-run/GitOps bias for configuration changes. New
+  `command` capability kind + manifest `command` block, `command` conformance vector,
+  security tests 20–22, RFC 0009 (sandbox tiers).
 - **§15 hardening** — mandatory `Vcp-Operation` routing header, OAuth `iss` validation
   per RFC 9207 (mix-up defense), issuer-bound credentials.
 - New RFCs **0005** (MCP Apps `ui://` interop), **0006** (async task resumability),
