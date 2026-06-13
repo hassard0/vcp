@@ -57,6 +57,8 @@
             "class": { "$ref": "#/$defs/effectClass" },
             "requires_user_approval": { "type": "boolean", "default": false },
             "external_side_effect": { "type": "boolean" },
+            "requires_attestation": { "type": "boolean", "default": false, "description": "When true, the Gateway MUST verify the Provider's environment attestation (§27) before minting a grant. Off by default to avoid friction." },
+            "attestation_tier": { "enum": ["statement", "tee"], "description": "Minimum environment-attestation tier required (§27.3). Default statement." },
             "compensating_action": {
               "type": "string",
               "description": "REQUIRED when class is write-reversible: the capability that undoes a committed effect (§11)."

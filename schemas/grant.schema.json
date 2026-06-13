@@ -86,6 +86,17 @@
         "credential_jkt": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "Thumbprint of the exchanged credential; the token itself is held behind the egress boundary." }
       }
     },
+    "attestation_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Reference to the verified environment attestation (§27) that gated this grant, when the capability required one. The full statement is NOT carried here (attest-once / reference-many).",
+      "properties": {
+        "id": { "type": "string" },
+        "tier": { "enum": ["statement", "tee"] },
+        "nonce": { "type": "string" },
+        "subject_role": { "enum": ["gateway", "provider", "agent"] }
+      }
+    },
     "gateway_signature": {
       "type": "object",
       "additionalProperties": false,

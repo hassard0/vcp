@@ -19,6 +19,7 @@
         "max_calls": { "type": "integer", "minimum": 1, "default": 1 },
         "expires_in_seconds": { "type": "integer", "minimum": 1 },
         "requires_result_attestation": { "type": "boolean", "default": true },
+        "requires_environment_attestation": { "type": "boolean", "default": false, "description": "When true, the Gateway MUST verify the Provider's environment attestation (§27) before minting a grant. Pairs with the `attest` obligation." },
         "redact_outputs_for_model": { "type": "boolean", "default": false },
         "budget": {
           "type": "object",

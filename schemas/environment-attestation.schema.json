@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/environment-attestation.schema.json",
+  "title": "VCP Environment Attestation",
+  "description": "Attests WHAT AN ACTOR IS — that a Gateway, Provider, or Agent runs the genuine code it claims, in the environment it claims (SPEC §27). Distinct from the result attestation of §9 (which attests what a call did). Off by default; produced only when a manifest sets effects.requires_attestation or policy returns an `attest` obligation. Attest-once / reference-many: the per-call envelope carries only an attestation_ref, never this full statement.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "tier", "subject_role", "issuer", "boot_epoch", "nonce", "expires_at", "signature"],
+  "properties": {
+    "kind": { "const": "vcp.environment.attestation" },
+    "tier": {
+      "enum": ["statement", "tee"],
+      "description": "statement = signed build/digest claim (no special hardware; L2/L3). tee = hardware remote-attestation evidence per RFC 9334 (L4, see RFC 0008)."
+    },
+    "subject_role": {
+      "enum": ["gateway", "provider", "agent"],
+      "description": "Which actor this attestation describes."
+    },
+    "issuer": { "type": "string", "description": "DID/URI of the attesting actor; its key signs this statement." },
+    "build_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "Claimed source/build digest; SHOULD match manifest provenance (RFC 0002)." },
+    "container_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "measurement": { "type": "string", "description": "OPTIONAL platform measurement (e.g. PCR digest / TEE quote hash) for tier=tee." },
+    "boot_epoch": { "type": "string", "description": "Stable per-boot/session identifier; the Gateway caches the verified result keyed by (issuer key, boot_epoch)." },
+    "nonce": { "type": "string", "description": "Gateway-issued challenge this statement is bound to (freshness / anti-replay, §27.4)." },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "evidence_ref": { "type": "string", "description": "For tier=tee: reference to full RATS Evidence appraised out-of-band." },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "value"],
+      "properties": {
+        "alg": { "type": "string", "default": "Ed25519" },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

@@ -492,7 +492,9 @@ class is `write-reversible` or `write-irreversible`, the Gateway **MUST** use
 6. **Mint & invoke** — only the approved `plan_hash` may be applied; the Gateway
    mints the grant and invokes with `dry_run: false`.
 
-**Attestation** — every result **MUST** carry a Provider-signed attestation:
+**Result attestation** — every result **MUST** carry a Provider-signed attestation of
+*what the call did* (distinct from the *environment* attestation of §27, which attests
+*what an actor is*):
 
 ```json
 {
@@ -800,10 +802,11 @@ Each test asserts that the attack is **rejected, contained, or made auditable**.
 | 16 | **Cancelled-task reuse** — invoke under a grant whose task was cancelled (§21) | Cancel revokes the grant ⇒ `GRANT_REVOKED` |
 | 17 | **Cross-subject task access** — `tasks/get` by a subject that does not own it (§21) | Subject-scoped ⇒ `SUBJECT_MISMATCH` |
 | 18 | **UI artifact swap** — interface bytes differ from `content_hash` (§22) | Content-address verify ⇒ `INTERFACE_HASH_MISMATCH` |
+| 19 | **Unattested provider** — capability requires attestation but none/forged presented (§27) | `ATTESTATION_REQUIRED` / `ATTESTATION_INVALID` ⇒ no grant minted |
 
-Tests 1–12 exercise the core (VCP-L1/L2). Tests 13–18 exercise the `2026-06-13`
-surfaces (multi-provider OBO, tasks, interfaces). Conformance vectors for all are
-published under `vcp-servers/conformance`.
+Tests 1–12 exercise the core (VCP-L1/L2). Tests 13–19 exercise the `2026-06-13`
+surfaces (multi-provider OBO, tasks, interfaces, environment attestation). Conformance
+vectors for all are published under `vcp-servers/conformance`.
 
 ---
 
@@ -987,7 +990,8 @@ remediable error vocabulary.
 | `SCHEMA_VALIDATION_FAILED` | Arguments violated the input schema | Fix the arguments |
 | `ADDITIONAL_PROPERTY` | Undeclared argument present (`additionalProperties:false`) | Remove the extra field |
 | `SANDBOX_VIOLATION` | Filesystem/network egress outside the allowlist | Stay within declared scope |
-| `ATTESTATION_INVALID` | Result attestation failed verification | Discard result; retry |
+| `ATTESTATION_INVALID` | A result (§9) or environment (§27) attestation failed verification | Discard/retry; re-attest |
+| `ATTESTATION_REQUIRED` | Environment attestation required but not presented (§27) | Attest the actor's environment |
 | `REPLAY_EVIDENCE_MISSING` | `nondeterministic` result lacked record/replay evidence | Provide replay evidence |
 | `TASK_EXPIRED` | Task handle past expiry | Re-authorize the task |
 | `SUBJECT_MISMATCH` | Handle/task presented by a different subject | Use the owning subject |
@@ -1153,6 +1157,7 @@ VCP tracks the good ideas MCP converged on and hardens the trust boundary at eac
 | Tracing | W3C Trace Context in `_meta`; OTel | W3C Trace Context on every invocation + signed audit event (§20, §25) |
 | Data flow | Not modeled | Taint labels; authority never flows from tainted data; data-flow policy (§12) |
 | Multi-provider | Isolated per-server trust; shadowing/confused-deputy risk | First-class fan-out: per-provider token exchange (RFC 8693), OBO delegation chain, one approval / many scoped grants (§26) |
+| Runtime integrity | None — servers/clients trusted as installed software | Optional, layered **environment attestation** (RFC 9334): off by default, cheap signed statement, hardware TEE at L4 (§27) |
 
 ## Appendix D — Worked multi-provider example (on-behalf-of fan-out)
 
@@ -1191,3 +1196,70 @@ Three Providers are involved: `gmail` (read), `linear` (write-reversible),
 The result: a ten-provider workflow would still be **one** user approval, **N**
 single-use audience-bound grants, **zero** reusable cross-provider tokens, and a
 complete per-call who-on-whose-behalf audit trail.
+
+---
+
+## 27. Environment and Workload Attestation
+
+Two different things are called "attestation" in VCP; they are distinct:
+
+- **Result attestation (§9)** attests *what a call did* — a Provider signs its output,
+  effect, and observed refs. Always present, cheap.
+- **Environment attestation (this section)** attests *what an actor is* — that a
+  Gateway, Provider, or Agent is running the genuine, unmodified code it claims, in
+  the environment it claims. This closes the gap noted in §19 / RFC 0002: a
+  self-hosted Provider's declared `build_digest` is otherwise only an assertion.
+
+> **Friction is the explicit design constraint.** Environment attestation is **off by
+> default**, **attest-once / reference-many**, and **layered**, so it adds nothing to
+> the common path and only as much as policy actually demands.
+
+### 27.1 Optional and negotiated
+
+An actor attests its environment **only** when a capability manifest sets
+`effects.requires_attestation: true`, or a policy decision returns an `attest`
+obligation. By default no actor attests and there is **zero** added round-trip.
+
+### 27.2 Attest-once, reference-many
+
+An actor attests at boot or session start. The Gateway caches the verified result
+keyed by the actor's key and a `boot_epoch`. Per-call envelopes carry only a small
+`attestation_ref` (an id + the nonce it was bound to) — full evidence is **never**
+re-transmitted per call.
+
+### 27.3 Two tiers
+
+- **`statement`** (default-capable; no special hardware) — a signed **Environment
+  Statement**: `{ subject_role, issuer, build_digest, container_digest, boot_epoch,
+  nonce, expires_at, signature }`. It requires only the Ed25519 key the actor already
+  has, proves key continuity and the claimed build, and suffices for L2/L3.
+- **`tee`** (L4) — hardware remote-attestation evidence following the RATS
+  architecture ([RFC 9334](https://www.rfc-editor.org/rfc/rfc9334)): an Attester
+  produces Evidence, a Verifier appraises it to an Attestation Result. Detailed in
+  RFC 0008.
+
+Attestable roles: `gateway`, `provider`, `agent`.
+
+### 27.4 Verification (RATS mapping)
+
+The **Gateway is the Verifier**; **policy is the Relying Party**. When attestation is
+required, the Gateway **MUST**:
+
+1. issue a fresh `nonce` and verify the statement is bound to it (freshness;
+   anti-replay);
+2. verify the signature and that `build_digest` / `container_digest` are in the trust
+   set (or match the manifest provenance, RFC 0002), and that the statement is unexpired;
+3. on failure, deny with `ATTESTATION_REQUIRED` (missing) or `ATTESTATION_INVALID`
+   (present but bad) and **mint no grant**;
+4. record the attestation result **by reference** in the audit event (§20).
+
+Provider attestation gates grant minting for capabilities that require it. Agent
+attestation lets policy decide on a **verified** planner identity rather than a
+self-asserted one. Gateway attestation lets a Provider or Host verify the enforcing
+layer itself.
+
+> **VCP-vs-MCP:** MCP has no notion of attesting the runtime integrity of servers or
+> clients — local servers are "trusted like installed software." VCP makes runtime
+> attestation a first-class but **optional, layered** control: nothing on the common
+> path, a cheap key-based statement when policy wants assurance, and hardware-backed
+> evidence when an L4 deployment demands it.

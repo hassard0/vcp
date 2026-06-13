@@ -40,6 +40,17 @@
       }
     },
     "credential_audience": { "type": "string", "description": "Audience of the exchanged upstream credential (§26.5), by reference — never the token." },
+    "attestation_ref": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Reference to the verified environment attestation (§27) recorded for this call, by reference.",
+      "properties": {
+        "id": { "type": "string" },
+        "tier": { "enum": ["statement", "tee"] },
+        "subject_role": { "enum": ["gateway", "provider", "agent"] },
+        "result": { "enum": ["verified", "required", "invalid"] }
+      }
+    },
     "decision": { "enum": ["allow", "deny", "challenge"] },
     "reason_code": { "type": "string" },
     "effect": {

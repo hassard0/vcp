@@ -46,6 +46,13 @@ identified, without changing any v0.1 conformance vector.
   resource indicator (RFC 8707), an explicit on-behalf-of **delegation chain** in
   every grant and audit event, and **one user approval covering the whole
   cross-service blast radius** (many scoped grants, not many prompts).
+- **§27 Environment and Workload Attestation** — optional, low-friction runtime
+  integrity: attest *what an actor is* (gateway/provider/agent) distinct from §9's
+  *what a call did*. **Off by default**, attest-once / reference-many, and layered — a
+  cheap signed `statement` tier (Ed25519 only) for L2/L3 and a hardware `tee` tier
+  (RFC 9334 RATS) for L4. New `schemas/environment-attestation.schema.json`,
+  `effects.requires_attestation` flag, `grant.attestation_ref`, audit
+  `attestation_ref`, reason code `ATTESTATION_REQUIRED`, security test 19, RFC 0008.
 - **§15 hardening** — mandatory `Vcp-Operation` routing header, OAuth `iss` validation
   per RFC 9207 (mix-up defense), issuer-bound credentials.
 - New RFCs **0005** (MCP Apps `ui://` interop), **0006** (async task resumability),
