@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/discovery.schema.json",
+  "title": "VCP Discovery Documents",
+  "description": "Two-layer discovery: provider discovery at GET /.well-known/vcp-provider, and capability discovery (an index of capabilities with manifest URLs + hashes). A client MUST NOT trust discovery alone: it fetches, verifies the manifest signature and contract_hash, checks transparency/revocation, evaluates policy, then presents an install/approval diff. See SPECIFICATION.md §5, §16.",
+  "oneOf": [
+    { "$ref": "#/$defs/providerDiscovery" },
+    { "$ref": "#/$defs/capabilityIndex" }
+  ],
+  "$defs": {
+    "providerDiscovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vcp", "provider", "issuer"],
+      "properties": {
+        "vcp": { "const": "0.1" },
+        "provider": { "type": "string" },
+        "issuer": { "type": "string", "description": "DID/URI whose key signs this provider's manifests." },
+        "manifest_index": { "type": "string", "format": "uri" },
+        "transparency_log": { "type": "string", "format": "uri", "description": "OPTIONAL. See RFC 0001." },
+        "auth": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "type": { "type": "string", "examples": ["oauth2.1", "mtls"] },
+            "resource": {
+              "type": "string",
+              "format": "uri",
+              "description": "Resource indicator. A token issued for one resource MUST NOT be accepted by another (no token passthrough, §15)."
+            }
+          }
+        }
+      }
+    },
+    "capabilityIndex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilities"],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "manifest_url", "manifest_hash"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
+              },
+              "name": { "type": "string" },
+              "effect": {
+                "enum": ["read-only", "propose-only", "write-idempotent", "write-reversible", "write-irreversible"]
+              },
+              "manifest_url": { "type": "string", "format": "uri" },
+              "manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "provenance": {
+                "enum": ["native", "legacy_mcp"],
+                "default": "native",
+                "description": "legacy_mcp marks a capability bridged from an MCP server (§16)."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

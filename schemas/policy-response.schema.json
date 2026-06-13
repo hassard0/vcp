@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/policy-response.schema.json",
+  "title": "VCP Policy Decision Response",
+  "description": "Policy Authority -> Gateway. On `deny`, the response MUST carry a structured, machine-actionable reason_code and SHOULD carry remediation so a Planner can self-correct (the mcp-ledger LEDGER_LIMIT_EXCEEDED pattern). See SPECIFICATION.md §6.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision"],
+  "properties": {
+    "decision": {
+      "enum": ["allow", "deny", "challenge"],
+      "description": "challenge = request additional consent / step-up before re-deciding."
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Bounds the Gateway MUST encode into the minted grant.",
+      "properties": {
+        "max_calls": { "type": "integer", "minimum": 1, "default": 1 },
+        "expires_in_seconds": { "type": "integer", "minimum": 1 },
+        "requires_result_attestation": { "type": "boolean", "default": true },
+        "redact_outputs_for_model": { "type": "boolean", "default": false },
+        "budget": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "usd": { "type": "number", "minimum": 0 },
+            "tokens": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "network": { "type": "array", "items": { "type": "string", "format": "uri" } },
+        "resource_scope": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "obligations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Side obligations the Gateway MUST fulfill, e.g. audit, notify, log-to-ledger."
+    },
+    "reason_code": {
+      "type": "string",
+      "description": "Machine-actionable code. On deny, REQUIRED. Stable, screaming-snake-case, e.g. ALLOWED_WITH_CONSTRAINTS, DATA_FLOW_FORBIDDEN, BUDGET_EXCEEDED, MANIFEST_UNVERIFIED, APPROVAL_REQUIRED."
+    },
+    "remediation": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "On deny, SHOULD describe what would make the call allowable (drop a data flow, narrow scope, obtain consent).",
+      "properties": {
+        "message": { "type": "string" },
+        "removable_data_flows": { "type": "array", "items": { "type": "string" } },
+        "required_consent": { "type": "string" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "deny" } } },
+      "then": { "required": ["reason_code"] }
+    }
+  ]
+}

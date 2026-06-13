@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/plan.schema.json",
+  "title": "VCP Plan",
+  "description": "An ordered set of proposed capability invocations produced by the Planner. The Planner has no authority; a plan is a proposal only. The Gateway computes plan_hash = sha256(JCS(plan)) and binds approval and grants to it. See SPECIFICATION.md §9.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "steps"],
+  "properties": {
+    "kind": { "const": "vcp.plan" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "capability", "arguments", "effect"],
+        "properties": {
+          "id": { "type": "string", "description": "Step identifier, unique within the plan, e.g. s1." },
+          "capability": {
+            "type": "string",
+            "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$",
+            "description": "Content-addressed capability id. Binding is to identity, never name (§4)."
+          },
+          "arguments": { "type": "object", "description": "Arguments MUST validate against the capability's input_schema." },
+          "effect": {
+            "enum": ["read-only", "propose-only", "write-idempotent", "write-reversible", "write-irreversible"]
+          },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Step ids this step consumes output from. Used for taint propagation (§12)."
+          },
+          "consumes": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/dataRef" },
+            "default": [],
+            "description": "Declared inputs with taint labels, feeding the §6 data_flows."
+          },
+          "why": { "type": "string", "description": "Human-readable justification shown at approval time." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "dataRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "label"],
+      "properties": {
+        "source": { "type": "string", "description": "Logical source, e.g. email.inbox or step:s1." },
+        "label": {
+          "enum": ["system_instruction", "developer_instruction", "user_instruction", "trusted_manifest_summary", "untrusted_resource_data", "untrusted_tool_result", "secret", "policy_only"],
+          "description": "Taint label (§12). Authority MUST NOT flow from untrusted_* labels."
+        },
+        "classification": { "type": "string", "description": "Optional sensitivity tag, e.g. personal, confidential." }
+      }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/attestation.schema.json",
+  "title": "VCP Result + Attestation Envelope",
+  "description": "Provider -> Gateway. Every result MUST carry a Provider-signed attestation. The Gateway MUST verify the signature and that capability_id and argument_hash match what it authorized before returning the (tainted) result to the Planner. See SPECIFICATION.md §9, §10.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result", "attestation"],
+  "properties": {
+    "result": {
+      "description": "The capability output. MUST validate against the capability's output_schema. MUST be size-bounded; oversized output MUST be paginated behind a state handle (§8)."
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "argument_hash", "result_hash", "effect_committed", "provider_signature"],
+      "properties": {
+        "capability_id": {
+          "type": "string",
+          "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
+        },
+        "argument_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "result_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "sha256(JCS(result))." },
+        "idempotency_key": { "type": "string" },
+        "effect_committed": {
+          "type": "boolean",
+          "description": "false for a dry_run; true once the side effect is durably committed."
+        },
+        "observed_external_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "REQUIRED for external-read results (§10): the external state observed, e.g. calendar_event:evt_123."
+        },
+        "provider_signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["alg", "value"],
+          "properties": {
+            "alg": { "type": "string", "default": "Ed25519" },
+            "value": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

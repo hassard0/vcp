@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/grant.schema.json",
+  "title": "VCP Capability Grant",
+  "description": "A single-use, proof-bound authorization token minted by the Gateway after a policy `allow`. Authorizes exactly one invocation. See SPECIFICATION.md §7. A grant is audience-bound (capability_id), argument-bound (argument_hash), plan-bound (plan_hash), time-bound (expires_at), scope-bound (network/resource_scope/budget), proof-of-possession bound, and attenuable-only (may be narrowed, never widened).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "grant_id", "subject", "audience", "plan_hash", "argument_hash", "allowed_effect", "expires_at", "max_calls", "proof_of_possession", "gateway_signature"],
+  "properties": {
+    "kind": { "const": "vcp.capability.grant" },
+    "grant_id": { "type": "string", "minLength": 1 },
+    "subject": { "type": "string", "description": "The principal on whose behalf the call is authorized, e.g. user:123." },
+    "audience": {
+      "type": "string",
+      "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$",
+      "description": "The exact capability_id this grant authorizes. A grant for one capability MUST NOT authorize another."
+    },
+    "plan_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "argument_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "allowed_effect": {
+      "enum": ["read-only", "propose-only", "write-idempotent", "write-reversible", "write-irreversible"]
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Short TTL. RECOMMENDED <= 300s from mint time (§7)."
+    },
+    "max_calls": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Single-use by default. The Gateway MUST reject reuse beyond this count (replay defense, §17 test 6)."
+    },
+    "network": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" },
+      "default": [],
+      "description": "Egress ceiling. MUST be a subset of the capability's sandbox.network."
+    },
+    "resource_scope": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "budget": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Spend/usage ceiling, designed for enforcement by a ledger substrate (mcp-ledger). Open cost dimensions.",
+      "properties": {
+        "usd": { "type": "number", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "calls": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "proof_of_possession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "jkt"],
+      "description": "DPoP-style key binding. The holder MUST prove possession of the key whose thumbprint is jkt; a leaked grant alone is unusable (§7).",
+      "properties": {
+        "alg": { "type": "string", "default": "Ed25519" },
+        "jkt": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "JWK SHA-256 thumbprint of the holder's public key." }
+      }
+    },
+    "attenuated_from": {
+      "type": "string",
+      "description": "OPTIONAL grant_id this grant was narrowed from. A Gateway MAY narrow scope before delegating; it MUST NOT widen (§7)."
+    },
+    "gateway_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "value"],
+      "properties": {
+        "alg": { "type": "string", "default": "Ed25519" },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

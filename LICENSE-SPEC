@@ -1,0 +1,23 @@
+VCP — Licensing
+===============
+
+The VCP project is dual-licensed by artifact type:
+
+1. Prose specification documents — SPECIFICATION.md, everything under docs/, and
+   everything under rfcs/ — are licensed under the Creative Commons Attribution 4.0
+   International License (CC BY 4.0).
+
+       https://creativecommons.org/licenses/by/4.0/
+
+   You are free to share and adapt these documents, including for commercial
+   purposes, provided you give appropriate credit.
+
+2. The schemas/ directory and any source code in this repository are licensed under
+   the Apache License, Version 2.0. See the LICENSE file in the repository root.
+
+       https://www.apache.org/licenses/LICENSE-2.0
+
+When in doubt: machine-readable artifacts (schemas, code) are Apache-2.0; human-
+readable specification prose is CC BY 4.0.
+
+Copyright 2026 hassard0 and the VCP contributors.

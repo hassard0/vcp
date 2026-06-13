@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/manifest.schema.json",
+  "title": "VCP Capability Manifest",
+  "description": "A signed, immutable document fully describing one VCP capability. See SPECIFICATION.md §5.2. Identity (capability.id / contract_hash) is sha256(JCS(contract)) where `contract` is the security-relevant subset defined in §4: name, version, input_schema, output_schema, effects, determinism, sandbox, and issuer. summary_for_user, summary_for_model, provenance, and signature are NOT part of the contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["vcp", "kind", "issuer", "provider", "capability", "signature"],
+  "properties": {
+    "vcp": { "const": "0.1" },
+    "kind": { "const": "capability.manifest" },
+    "issuer": {
+      "type": "string",
+      "description": "DID or URI identifying the signing provider, e.g. did:web:example.com. Part of the contract.",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "description": "Stable provider namespace, e.g. example.calendar.",
+      "minLength": 1
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "version", "contract_hash", "summary_for_user", "summary_for_model", "input_schema", "output_schema", "effects", "determinism", "sandbox"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$",
+          "description": "Content-addressed identity: vcp:cap:<name>@sha256:<hex> where hex = contract_hash digest."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "sha256(JCS(contract)). MUST match the digest embedded in `id`."
+        },
+        "summary_for_user": {
+          "type": "string",
+          "description": "Display string shown to the user at approval time. NOT part of the contract; NOT an instruction."
+        },
+        "summary_for_model": {
+          "type": "string",
+          "description": "Display string the Gateway MAY compile into an affordance for the Planner. NOT part of the contract; NEVER passed verbatim as instruction."
+        },
+        "input_schema": {
+          "type": "object",
+          "description": "JSON Schema for arguments. Every object level MUST set additionalProperties:false (schema-confusion / hidden-argument defense, §17)."
+        },
+        "output_schema": { "type": "object" },
+        "effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "external_side_effect"],
+          "properties": {
+            "class": { "$ref": "#/$defs/effectClass" },
+            "requires_user_approval": { "type": "boolean", "default": false },
+            "external_side_effect": { "type": "boolean" },
+            "compensating_action": {
+              "type": "string",
+              "description": "REQUIRED when class is write-reversible: the capability that undoes a committed effect (§11)."
+            },
+            "may_send_to": { "type": "array", "items": { "type": "string" }, "default": [] },
+            "may_read_from": { "type": "array", "items": { "type": "string" }, "default": [] },
+            "may_write_to": { "type": "array", "items": { "type": "string" }, "default": [] }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "class": { "const": "write-reversible" } } },
+              "then": { "required": ["compensating_action"] }
+            }
+          ]
+        },
+        "determinism": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class"],
+          "properties": {
+            "class": { "$ref": "#/$defs/determinismClass" },
+            "requires_idempotency_key": { "type": "boolean", "default": false },
+            "supports_dry_run": { "type": "boolean", "default": false }
+          }
+        },
+        "sandbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filesystem", "network", "secrets"],
+          "properties": {
+            "filesystem": {
+              "oneOf": [
+                { "const": "none" },
+                { "type": "array", "items": { "type": "string" }, "description": "Filesystem allowlist (paths/globs)." }
+              ],
+              "description": "Default none. Anything else is an explicit allowlist (§14)."
+            },
+            "network": {
+              "type": "array",
+              "items": { "type": "string", "format": "uri" },
+              "description": "Network egress allowlist. Empty array = deny all (§14)."
+            },
+            "secrets": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Named secrets injected by the Gateway secret broker. Never raw env vars (§14)."
+            }
+          }
+        },
+        "kind": {
+          "$ref": "#/$defs/capabilityKind",
+          "default": "tool",
+          "description": "tool | resource | prompt | workflow | state | event (§5.1)."
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Build/source provenance. NOT part of the contract. See RFC 0002.",
+      "properties": {
+        "source_repo": { "type": "string" },
+        "build_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "container_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "effectClass": {
+      "enum": ["read-only", "propose-only", "write-idempotent", "write-reversible", "write-irreversible"]
+    },
+    "determinismClass": {
+      "enum": ["pure", "snapshot-read", "external-read", "idempotent-write", "nondeterministic"]
+    },
+    "capabilityKind": {
+      "enum": ["tool", "resource", "prompt", "workflow", "state", "event"]
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "value"],
+      "properties": {
+        "alg": { "type": "string", "default": "Ed25519", "description": "Carried in-band; never assumed (§3)." },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

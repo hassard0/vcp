@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/invocation.schema.json",
+  "title": "VCP Invocation Envelope",
+  "description": "Gateway -> Provider, one capability invocation. The Provider MUST verify the grant, recompute argument_hash and confirm it matches the grant, honor dry_run, respect grant scope, and use idempotency_key for retry-safe effects. See SPECIFICATION.md §8.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["vcp", "kind", "capability", "grant", "arguments", "argument_hash"],
+  "properties": {
+    "vcp": { "const": "0.1" },
+    "kind": { "const": "vcp.invoke" },
+    "capability": {
+      "type": "string",
+      "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
+    },
+    "grant": {
+      "$ref": "https://github.com/hassard0/vcp/schemas/grant.schema.json",
+      "description": "The grant authorizing exactly this invocation. Its audience MUST equal `capability`."
+    },
+    "arguments": { "type": "object" },
+    "argument_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "sha256(JCS(arguments)). MUST match grant.argument_hash; else reject ARGUMENT_HASH_MISMATCH."
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": { "type": "string" },
+        "logical_time": { "type": "string", "format": "date-time" },
+        "timezone": { "type": "string" },
+        "locale": { "type": "string" },
+        "random_seed": { "type": "string" },
+        "snapshot_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to input snapshots for snapshot-read / external-read reproducibility (§10)."
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true (and the manifest declares supports_dry_run), the Provider returns the would-be effect without committing (§9)."
+    }
+  }
+}

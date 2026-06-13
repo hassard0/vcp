@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/policy-request.schema.json",
+  "title": "VCP Policy Decision Request",
+  "description": "Gateway -> Policy Authority. VCP does not mandate a policy engine (OPA, Cedar, cani all qualify); it mandates this request shape. A Gateway MUST obtain an `allow` decision before minting a grant. See SPECIFICATION.md §6.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["vcp", "kind", "subject", "capability", "argument_hash", "effect"],
+  "properties": {
+    "vcp": { "const": "0.1" },
+    "kind": { "const": "policy.request" },
+    "subject": { "type": "string" },
+    "model": { "type": "string", "description": "Planner identity, e.g. agent:researcher." },
+    "capability": {
+      "type": "string",
+      "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
+    },
+    "arguments": { "type": "object" },
+    "argument_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "plan_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "data_flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "classification": { "type": "string" }
+        }
+      },
+      "description": "Declared data movement with classifications. The data-flow-aware policy check (§12, §15 killer feature)."
+    },
+    "effect": {
+      "enum": ["read-only", "propose-only", "write-idempotent", "write-reversible", "write-irreversible"]
+    },
+    "determinism": {
+      "enum": ["pure", "snapshot-read", "external-read", "idempotent-write", "nondeterministic"]
+    },
+    "risk": { "enum": ["low", "medium", "high", "critical"] },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user_approved": { "type": "boolean" },
+        "plan_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

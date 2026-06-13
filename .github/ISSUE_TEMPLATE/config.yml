@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Propose a normative change (RFC)
+    url: https://github.com/hassard0/vcp/blob/main/rfcs/0000-template.md
+    about: Anything that changes a normative MUST/SHOULD requirement or a schema goes through the RFC process, not an issue.
+  - name: Discussion & questions
+    url: https://github.com/hassard0/vcp/discussions
+    about: General questions, design discussion, and show-and-tell belong in Discussions.
+  - name: Security report
+    url: https://github.com/hassard0/vcp/security/advisories/new
+    about: Report security-relevant design flaws privately. Do not open a public issue.

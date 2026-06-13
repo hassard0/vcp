@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/audit-event.schema.json",
+  "title": "VCP Audit Event",
+  "description": "Every invocation MUST emit a signed audit event, OpenTelemetry-compatible. Audit events MUST NOT contain secrets and SHOULD carry only hashes of sensitive arguments. Designed to be consumed by a ledger substrate (mcp-ledger). See SPECIFICATION.md §19, §20.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event", "trace_id", "subject", "capability_id", "decision", "timestamp"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "description": "Event type, e.g. vcp.capability.invoked, vcp.grant.minted, vcp.policy.denied, vcp.attestation.rejected."
+    },
+    "trace_id": { "type": "string", "description": "OpenTelemetry trace id." },
+    "span_id": { "type": "string" },
+    "subject": { "type": "string" },
+    "host": { "type": "string" },
+    "model": { "type": "string" },
+    "provider": { "type": "string" },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
+    },
+    "plan_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "argument_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "grant_id": { "type": "string" },
+    "decision": { "enum": ["allow", "deny", "challenge"] },
+    "reason_code": { "type": "string" },
+    "effect": {
+      "enum": ["read-only", "propose-only", "write-idempotent", "write-reversible", "write-irreversible"]
+    },
+    "result_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "effect_committed": { "type": "boolean" },
+    "budget_spent": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "usd": { "type": "number", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "type": "string", "default": "Ed25519" },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

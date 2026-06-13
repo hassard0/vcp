@@ -1,0 +1,46 @@
+title: "[RFC] "
+labels: ["rfc"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to propose or discuss an RFC. For background, read
+        [`rfcs/README.md`](https://github.com/hassard0/vcp/blob/main/rfcs/README.md)
+        and the [Governance](https://github.com/hassard0/vcp/blob/main/GOVERNANCE.md)
+        document. Anything that changes a normative MUST/SHOULD requirement or a
+        schema needs an RFC.
+  - type: input
+    id: title
+    attributes:
+      label: Working title
+      placeholder: "Transparency registry inclusion proofs"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What gap or weakness in the current spec does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Sketch the design. Detailed normative text can come later in the RFC PR.
+    validations:
+      required: true
+  - type: input
+    id: sections
+    attributes:
+      label: Affected sections / schemas
+      placeholder: "§4, §5.2, manifest.schema.json"
+    validations:
+      required: true
+  - type: textarea
+    id: compat
+    attributes:
+      label: Backward-compatibility impact
+      description: Does this break existing conformant implementations? Which level?
+    validations:
+      required: true
