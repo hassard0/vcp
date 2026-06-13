@@ -109,7 +109,27 @@
         "kind": {
           "$ref": "#/$defs/capabilityKind",
           "default": "tool",
-          "description": "tool | resource | prompt | workflow | state | event (§5.1)."
+          "description": "tool | resource | prompt | workflow | state | event | task | interface (§5.1)."
+        },
+        "interface": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Present for kind=interface (§22). The UI artifact is content-addressed and signed; the Host MUST verify content_hash and render sandboxed under the declared CSP.",
+          "required": ["surface", "content_hash", "render"],
+          "properties": {
+            "surface": { "type": "string", "pattern": "^vcp:ui:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$" },
+            "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "render": { "enum": ["html-sandboxed"], "description": "Render mode; html-sandboxed = isolated iframe, no ambient origin." },
+            "csp": { "type": "object", "description": "Content-Security-Policy directives. Absent ⇒ Host MUST apply deny-all default.", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+            "permissions": { "type": "array", "items": { "type": "string" }, "default": [] },
+            "host_actions": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$" },
+              "default": [],
+              "description": "The only capabilities this UI may invoke; each call re-enters the full grant pipeline."
+            },
+            "model_visible": { "type": "boolean", "default": false, "description": "false ⇒ UI-only control hidden from the Planner." }
+          }
         }
       }
     },
@@ -133,7 +153,7 @@
       "enum": ["pure", "snapshot-read", "external-read", "idempotent-write", "nondeterministic"]
     },
     "capabilityKind": {
-      "enum": ["tool", "resource", "prompt", "workflow", "state", "event"]
+      "enum": ["tool", "resource", "prompt", "workflow", "state", "event", "task", "interface"]
     },
     "signature": {
       "type": "object",

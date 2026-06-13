@@ -43,6 +43,16 @@
       "type": "boolean",
       "default": false,
       "description": "When true (and the manifest declares supports_dry_run), the Provider returns the would-be effect without committing (§9)."
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "W3C Trace Context (§25) for cross-actor correlation in an OpenTelemetry backend.",
+      "properties": {
+        "traceparent": { "type": "string", "description": "W3C traceparent, e.g. 00-<trace-id>-<span-id>-01." },
+        "tracestate": { "type": "string" },
+        "baggage": { "type": "string" }
+      }
     }
   }
 }

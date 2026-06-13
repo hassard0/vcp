@@ -37,6 +37,8 @@
       "additionalProperties": false,
       "required": ["capabilities"],
       "properties": {
+        "ttl_ms": { "type": "integer", "minimum": 0, "description": "Cache lifetime (§25), modeled on HTTP Cache-Control. A cached index is valid only while each capability's manifest_hash still verifies." },
+        "cache_scope": { "enum": ["public", "subject", "none"], "description": "Caching scope (§25)." },
         "capabilities": {
           "type": "array",
           "items": {

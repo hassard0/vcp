@@ -6,7 +6,7 @@
 > single-use, proof-bound grant minted by an enforcing **Gateway**.
 
 [![Spec status: Draft RFC](https://img.shields.io/badge/spec-Draft%20RFC-orange)](./SPECIFICATION.md)
-[![Protocol revision](https://img.shields.io/badge/revision-2026--06--12-blue)](./CHANGELOG.md)
+[![Protocol revision](https://img.shields.io/badge/revision-2026--06--13-blue)](./CHANGELOG.md)
 [![Spec license: CC BY 4.0](https://img.shields.io/badge/spec-CC%20BY%204.0-green)](./LICENSE-SPEC)
 [![Code license: Apache 2.0](https://img.shields.io/badge/code-Apache%202.0-green)](./LICENSE)
 
@@ -38,6 +38,7 @@ Model proposes plan
 | **SSRF, session hijacking, replay** | **Stateless VCP-HTTP**: one request = one decision, guarded metadata discovery, single-use grants, no implicit sessions. |
 | **Stateful-session ambiguity** | No implicit protocol sessions. State is an **explicit, typed, expiring handle**. |
 | **Prompt injection via resources** | **Taint labels**: authority never flows from `untrusted_*` data, even when the model is tricked into proposing a bad plan. |
+| **Cross-server shadowing / confused deputy** (multi-provider) | **Per-provider scoped credentials** via token exchange + an **on-behalf-of delegation chain** in every grant and audit event; one user approval covers the whole cross-service action (§26). |
 
 ## The shape of the idea
 

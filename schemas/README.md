@@ -13,8 +13,9 @@ dated protocol revision and are authoritative alongside the prose in
 | `policy-response.schema.json` | Policy Authority → Gateway decision | §6 |
 | `invocation.schema.json` | Gateway → Provider invocation envelope | §8 |
 | `attestation.schema.json` | Provider → Gateway result + signed attestation | §9, §10 |
-| `audit-event.schema.json` | Signed, OpenTelemetry-compatible audit event | §20 |
-| `discovery.schema.json` | Provider + capability discovery documents | §5, §16 |
+| `audit-event.schema.json` | Signed, OpenTelemetry-compatible audit event; carries the OBO delegation chain | §20, §26 |
+| `discovery.schema.json` | Provider + capability discovery documents (+ caching hints) | §5, §16, §25 |
+| `task.schema.json` | Long-running, grant-bound async task handle | §21 |
 
 ## Conventions
 

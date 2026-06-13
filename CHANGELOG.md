@@ -15,6 +15,46 @@ prose and ship in the same revision.
 
 Collecting feedback on the Draft RFC; open RFCs tracked in [`rfcs/`](./rfcs/).
 
+## [2026-06-13] — MCP-informed hardening
+
+Protocol revision `2026-06-13`. Additive expansion folding in the good ideas MCP
+converged on (per its 2026-07-28 release candidate) and closing gaps critics
+identified, without changing any v0.1 conformance vector.
+
+### Added
+
+- **§21 Asynchronous Execution (Tasks)** — long-running work as `task` state handles
+  ("call-now, fetch-later"); the originating grant bounds the task's lifetime and
+  authority, and **cancellation revokes the grant**. Parallels MCP Tasks
+  (SEP-1391/1686) with the added security binding. New `task` capability kind and
+  `schemas/task.schema.json`.
+- **§22 Interface Capabilities** — signed, sandboxed user-interface surfaces (VCP's
+  hardened answer to MCP Apps / SEP-1865): content-addressed and **mandatorily
+  signed** UI artifacts, enforced CSP, and **every UI-initiated action re-enters the
+  full grant pipeline**. New `interface` capability kind + manifest `interface` block.
+- **§23 Reason Code Registry** — a normative, remediable error/denial vocabulary,
+  closing MCP's missing-error-standard gap.
+- **§24 Extensions and Feature Lifecycle** — reverse-DNS extensions negotiated per
+  request, an `Active → Deprecated → Removed` policy with a 12-month minimum window,
+  and conformance-gated promotion to Stable.
+- **§25 Caching and Distributed Tracing** — `ttl_ms`/`cache_scope` hints valid only
+  while the content hash verifies, and W3C Trace Context on invocations and audit
+  events.
+- **§26 Multi-Provider Composition and On-Behalf-Of Delegation** — a Gateway fanning
+  out to many upstream APIs as a first-class, secure, low-friction operation:
+  per-provider credential brokering via OAuth Token Exchange (RFC 8693) bound to a
+  resource indicator (RFC 8707), an explicit on-behalf-of **delegation chain** in
+  every grant and audit event, and **one user approval covering the whole
+  cross-service blast radius** (many scoped grants, not many prompts).
+- **§15 hardening** — mandatory `Vcp-Operation` routing header, OAuth `iss` validation
+  per RFC 9207 (mix-up defense), issuer-bound credentials.
+- New RFCs **0005** (MCP Apps `ui://` interop), **0006** (async task resumability),
+  **0007** (on-behalf-of token exchange profile).
+- New schema fields: `grant.delegation_chain` / `grant.token_exchange`,
+  `audit-event.delegation_chain` / `credential_audience`, `invocation.trace`,
+  manifest `capability.interface`, discovery caching hints.
+- **Appendix C** — a head-to-head VCP-vs-MCP (2026-07-28 RC) comparison.
+
 ## [2026-06-12] — Initial Draft
 
 Protocol revision `2026-06-12`. First public Draft RFC of the Verifiable Capability

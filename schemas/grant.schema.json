@@ -63,6 +63,29 @@
       "type": "string",
       "description": "OPTIONAL grant_id this grant was narrowed from. A Gateway MAY narrow scope before delegating; it MUST NOT widen (§7)."
     },
+    "delegation_chain": {
+      "type": "array",
+      "description": "On-behalf-of chain (§26.2): ordered authorizer -> delegate -> enforcer -> executor -> resource. Authority strictly narrows down the chain.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "id"],
+        "properties": {
+          "role": { "enum": ["authorizer", "delegate", "enforcer", "executor", "resource"] },
+          "id": { "type": "string", "description": "e.g. user:123, agent:researcher, gateway:edge-1, example.calendar, https://calendar.example.com" }
+        }
+      }
+    },
+    "token_exchange": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-provider credential brokering (§26.1) via RFC 8693 token exchange. The raw token is NEVER carried here — only its audience and key thumbprint, by reference.",
+      "properties": {
+        "audience": { "type": "string", "description": "Resource indicator (RFC 8707) the exchanged token is bound to." },
+        "actor": { "type": "string", "description": "The act-claim subject: the agent acting on behalf of the user." },
+        "credential_jkt": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "Thumbprint of the exchanged credential; the token itself is held behind the egress boundary." }
+      }
+    },
     "gateway_signature": {
       "type": "object",
       "additionalProperties": false,

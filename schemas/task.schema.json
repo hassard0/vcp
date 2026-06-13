@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hassard0/vcp/schemas/task.schema.json",
+  "title": "VCP Task Handle",
+  "description": "A long-running, grant-bound asynchronous execution handle (SPEC §21). The invocation of a long-running capability returns a task handle instead of a result; status and result are fetched later via tasks/get. A task is a state handle: typed, expiring, subject-scoped. The originating grant governs the whole task lifetime; cancellation revokes the grant.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "task_id", "capability_id", "grant_id", "status", "created_at", "expires_at"],
+  "properties": {
+    "kind": { "const": "vcp.task" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "capability_id": { "type": "string", "pattern": "^vcp:cap:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$" },
+    "grant_id": { "type": "string", "description": "The grant that authorizes and bounds this task. The task MUST NOT outlive the grant's expires_at." },
+    "subject": { "type": "string", "description": "The owning subject. tasks/get|cancel from a different subject MUST be rejected (SUBJECT_MISMATCH)." },
+    "status": {
+      "enum": ["pending", "running", "input-required", "succeeded", "failed", "cancelled"],
+      "description": "input-required names a signed elicitation schema; the Host resumes by re-issuing with inputResponses."
+    },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "input_request": {
+      "type": "object",
+      "description": "Present when status=input-required: a signed elicitation schema (§13.2). The Provider MUST NOT smuggle free-form prompt text here.",
+      "additionalProperties": true
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "result_ref": {
+      "type": ["string", "null"],
+      "description": "Reference to the eventual result+attestation (§9). The result MAY be fetched more than once; result_hash MUST be stable across fetches."
+    },
+    "reason_code": { "type": "string", "description": "On status=failed/cancelled, a reason from the §23 registry (e.g. TASK_EXPIRED, GRANT_EXPIRED)." }
+  }
+}

@@ -2,7 +2,7 @@
 
 ### Verifiable Capability Protocol — Zero-Trust Capability Execution for AI Agents
 
-**Protocol revision:** `2026-06-12`
+**Protocol revision:** `2026-06-13`
 **Status:** Draft (Request for Comments)
 **Relates to:** [Model Context Protocol](https://modelcontextprotocol.io) (MCP), and
 any host/agent system that lets a model invoke external tools, read external data,
@@ -208,6 +208,8 @@ prompt      user-visible, signed workflow template (§ Prompts)
 workflow    multi-step declared capability graph
 state       explicit, typed, expiring handle for cross-call state
 event       subscription or notification stream
+task        long-running, grant-bound asynchronous execution handle (§21)
+interface   signed, sandboxed user-interface surface (§22)
 ```
 
 > **VCP-vs-MCP:** MCP carries cross-call state in implicit transport sessions. VCP
@@ -624,6 +626,13 @@ The Gateway compiles the request, applies policy, redacts data, enforces the tok
 budget, and returns **only** the approved output. The Provider never authors a hidden
 prompt and never receives more than `server_receives` declares.
 
+> **VCP-vs-MCP:** MCP's 2026 specification work **deprecated** server-initiated
+> sampling outright (directing servers to integrate an LLM API directly instead).
+> VCP's position — that server-requested inference must be a bounded, policy-gated,
+> redacted capability rather than a free-form completion request — is the safer
+> middle ground: it keeps the feature available where it is genuinely useful while
+> removing the covert-prompt surface that led MCP to drop it.
+
 ---
 
 ## 14. Local Execution Sandbox Profile (`VCP-Local`)
@@ -656,20 +665,33 @@ capability to satisfy a production policy that requires verification.
 ```
 one request           = one authorization decision
 body                  = canonical JSON (§3)
-protocol version      carried in a mandatory header
-capability hash       carried in a mandatory header
+protocol version      carried in a mandatory header (Vcp-Version)
+capability hash       carried in a mandatory header (Vcp-Capability)
+operation             carried in a mandatory header (Vcp-Operation)
 transport security    mTLS, or proof-bound OAuth 2.1 for enterprise
 streaming             OPTIONAL via SSE / WebTransport, request-scoped
 ```
 
 A `VCP-HTTP` Gateway **MUST NOT** rely on implicit protocol sessions. Where streaming
 or long-running work is needed, the stream is **request-scoped** and any retained
-state is an explicit `state` handle (§5.1). Authorization context **MUST NOT** be
-carried implicitly across requests.
+state is an explicit `state` or `task` handle (§5.1, §21). Authorization context
+**MUST NOT** be carried implicitly across requests.
+
+> **VCP-vs-MCP:** MCP's 2026 transport work converged on statelessness and on routing
+> headers (`Mcp-Method`, `Mcp-Name`) so that load balancers and gateways can route on
+> the operation without inspecting the body. VCP requires the same in-band routing
+> metadata (`Vcp-Operation`, `Vcp-Capability`) from day one, and additionally makes
+> the per-request capability **hash** mandatory so a router/gateway can reject a call
+> to an unpinned or mutated capability before the body is ever parsed.
 
 OAuth usage **MUST** follow resource-indicator and protected-resource-metadata
 practice: a token issued for one resource **MUST NOT** be accepted by another
-(no token passthrough), and metadata discovery **MUST** guard against SSRF (§17).
+(no token passthrough), and metadata discovery **MUST** guard against SSRF (§17). A
+client **MUST** validate the authorization-server `iss` response parameter per
+[RFC 9207](https://www.rfc-editor.org/rfc/rfc9207) to defend against mix-up attacks,
+and a minted credential **MUST** be bound to its issuing authorization server's
+`issuer`. The protected-resource discovery suffix is `.well-known/vcp-provider`
+(§ Discovery).
 
 ---
 
@@ -823,6 +845,259 @@ Every invocation **MUST** emit a signed audit event, OpenTelemetry-compatible:
 
 ---
 
+## 21. Asynchronous Execution (Tasks)
+
+A capability whose work outlives a single request **MUST** model that work as a
+`task` (§5.1): the invocation returns a **task handle** instead of a result, and the
+Planner/Host later fetches status and the eventual result. This is the
+"call-now, fetch-later" pattern, made grant-safe.
+
+```json
+{
+  "kind": "vcp.task",
+  "task_id": "task_018f...",
+  "capability_id": "vcp:cap:render.video@sha256:...",
+  "grant_id": "grant_018f...",
+  "status": "running",
+  "progress": 0.42,
+  "created_at": "2026-06-13T16:00:00Z",
+  "expires_at": "2026-06-13T17:00:00Z",
+  "result_ref": null
+}
+```
+
+Normative rules:
+
+- A task handle is a `state` handle (§5.1): typed, expiring, and scoped to the
+  subject that created it. A Gateway **MUST** reject `tasks/get`, `tasks/update`, or
+  `tasks/cancel` from a different subject or after expiry.
+- The originating **grant governs the whole task lifetime.** The Gateway **MUST NOT**
+  let a task outlive its grant's `expires_at`; a task that needs longer **MUST** be
+  re-authorized. `max_calls` accounting is charged once, at task creation.
+- The eventual result **MUST** carry the same attestation (§9) as a synchronous
+  result, bound to the original `argument_hash` and `capability_id`. A result **MAY**
+  be fetched more than once; the `result_hash` **MUST** be stable across fetches.
+- **Cancellation revokes the grant.** `tasks/cancel` **MUST** invalidate the grant so
+  no further effect can be committed under it, and **MUST** emit an audit event. For a
+  `write-reversible` task already committed, cancellation **SHOULD** invoke the
+  declared compensating action (§11).
+- Operations (`tasks/get`, `tasks/cancel`, …) are themselves stateless requests
+  carrying the routing headers of §15; there is no implicit task session.
+- A capability that needs more input mid-task **MUST** return an
+  `input-required` status naming a signed elicitation schema (§13.2); the Host
+  resumes by re-issuing with `inputResponses`. The Provider **MUST NOT** smuggle
+  free-form prompt text through this channel.
+
+> **VCP-vs-MCP:** MCP's Tasks extension (SEP-1391 / SEP-1686) arrived at a nearly
+> identical stateless task state machine — task handles, `tasks/get|cancel`,
+> input-required round-trips. VCP adopts the same ergonomics and adds the missing
+> security property: the **grant is the task's lifetime and authority bound**, and
+> **cancel means revoke**, so a long-running task cannot become a long-lived ambient
+> authority.
+
+---
+
+## 22. Interface Capabilities (Signed, Sandboxed UI)
+
+A capability **MAY** ship an interactive user interface — a dashboard, form, chart,
+or picker — as an `interface` capability (§5.1). The model never sees the UI's code
+as instruction; the user sees a rendered, sandboxed surface; and any action the UI
+takes is an ordinary VCP capability call subject to policy and grants.
+
+An interface is declared in the manifest with a content-addressed `interface` block:
+
+```json
+"interface": {
+  "surface": "vcp:ui:example.calendar.picker@sha256:7d21...",
+  "content_hash": "sha256:7d21...",
+  "render": "html-sandboxed",
+  "csp": { "default-src": ["'none'"], "connect-src": ["https://calendar.example.com"] },
+  "permissions": [],
+  "host_actions": ["calendar.create_event@sha256:9f4c..."],
+  "model_visible": false
+}
+```
+
+Normative rules:
+
+- The UI artifact is **content-addressed and signed**: the Host **MUST** verify
+  `content_hash` against the bytes it renders and reject a mismatch. A changed UI is a
+  new identity, exactly like a changed contract (§4).
+- The Host **MUST** render the artifact in a **sandbox** (e.g. an isolated iframe with
+  no ambient origin access) and **MUST** enforce the declared `csp`; where `csp` is
+  absent the Host **MUST** apply a deny-all default. Network egress is limited to the
+  manifest's `sandbox.network` ∩ `csp.connect-src`.
+- **Every action a UI initiates is a capability call through the Gateway.** A UI
+  **MUST NOT** invoke a capability that is not in its declared `host_actions`, and
+  each such call is subject to the full policy/grant/plan-apply pipeline (§6–§9). A
+  UI cannot escalate beyond what its host capability could already do.
+- Data the UI renders is labeled `untrusted_tool_result` (§12); a UI **MUST NOT** be
+  treated as a source of authority. `model_visible: false` hides a UI-only control
+  (e.g. a refresh button) from the Planner entirely.
+- Host↔UI messages are auditable JSON-RPC over the host channel; the Host **MUST**
+  validate and **MAY** log them.
+
+> **VCP-vs-MCP:** MCP Apps (SEP-1865) introduced server-rendered UIs via `ui://`
+> resources, sandboxed iframes, CSP, predeclared templates, and a `visibility` split
+> — a genuinely good idea VCP adopts wholesale. Where MCP Apps leaves resource
+> **hash verification optional** ("hosts *may* compute hash signatures"), VCP makes
+> signing and content-address verification **mandatory**, and routes every UI-initiated
+> action back through the same grant pipeline as a model-initiated one — so a poisoned
+> or swapped UI is a verification failure, not a trusted surface.
+
+---
+
+## 23. Reason Code Registry
+
+Every `deny`, `challenge`, and execution error **MUST** carry a stable, machine-
+actionable `reason_code` from the registry below (extensions add reverse-DNS-prefixed
+codes, §24). This closes a gap critics identify in MCP: the absence of a standard,
+remediable error vocabulary.
+
+| `reason_code` | Meaning | Typical remediation |
+|---|---|---|
+| `OK` | Allowed | — |
+| `ALLOWED_WITH_CONSTRAINTS` | Allowed under returned constraints | — |
+| `APPROVAL_REQUIRED` | Needs explicit user approval of the plan diff | Present dry-run; obtain approval |
+| `MANIFEST_UNVERIFIED` | Signature or `contract_hash` check failed | Re-fetch/verify manifest |
+| `ISSUER_UNTRUSTED` | Signing issuer not trusted by policy | Add issuer to trust set |
+| `CAPABILITY_REVOKED` | Capability revoked in the transparency log | Use a current capability |
+| `AUDIENCE_MISMATCH` | Grant addressed to a different capability | Mint a grant for this capability |
+| `ARGUMENT_HASH_MISMATCH` | Arguments changed after the grant was minted | Re-plan and re-approve |
+| `PLAN_NOT_APPROVED` | Apply attempted on an unapproved `plan_hash` | Approve the plan first |
+| `MAX_CALLS_EXCEEDED` | Single-use grant reused | Mint a new grant |
+| `GRANT_EXPIRED` | Grant past `expires_at` | Mint a new grant |
+| `BUDGET_EXCEEDED` | Spend/usage ceiling reached | Raise budget or reduce scope |
+| `DATA_FLOW_FORBIDDEN` | Policy forbids this data movement | Drop/redact the forbidden flow |
+| `AUTHORITY_FROM_TAINTED_DATA` | Action authority derived from `untrusted_*` data | Re-derive authority from a trusted source |
+| `SCHEMA_VALIDATION_FAILED` | Arguments violated the input schema | Fix the arguments |
+| `ADDITIONAL_PROPERTY` | Undeclared argument present (`additionalProperties:false`) | Remove the extra field |
+| `SANDBOX_VIOLATION` | Filesystem/network egress outside the allowlist | Stay within declared scope |
+| `ATTESTATION_INVALID` | Result attestation failed verification | Discard result; retry |
+| `REPLAY_EVIDENCE_MISSING` | `nondeterministic` result lacked record/replay evidence | Provide replay evidence |
+| `TASK_EXPIRED` | Task handle past expiry | Re-authorize the task |
+| `SUBJECT_MISMATCH` | Handle/task presented by a different subject | Use the owning subject |
+| `INPUT_REQUIRED` | Operation needs further elicited input | Supply `inputResponses` |
+| `INTERFACE_HASH_MISMATCH` | UI artifact bytes differ from `content_hash` | Re-fetch/verify the UI |
+
+A `deny`/`challenge` response **SHOULD** also carry a `remediation` object (§6).
+
+---
+
+## 24. Extensions and Feature Lifecycle
+
+VCP is versioned by dated protocol revisions (`YYYY-MM-DD`). Beyond the core, VCP
+supports **extensions** and a **feature lifecycle**, so the protocol can grow without
+either fragmenting or breaking deployed implementations.
+
+- **Extensions** are identified by a **reverse-DNS id** (e.g. `dev.vcp.ext.tasks`,
+  `com.example.ext.billing`) and are negotiated per request as content-addressed
+  capability identities (§4) — a Host advertises which extensions it accepts; a
+  Provider advertises which it requires. An unknown extension **MUST** fail closed,
+  never silently degrade. Extension `reason_code`s carry the extension's reverse-DNS
+  prefix.
+- **Feature lifecycle.** A normative feature moves through `Active → Deprecated →
+  Removed`. A feature **MUST NOT** be removed less than **twelve months** after it is
+  marked Deprecated, and the deprecating revision **MUST** name its replacement.
+- **Conformance-gated promotion.** A change **MUST NOT** reach `Stable`/`Final`
+  without matching scenarios in the security and conformance suites (§18). This makes
+  "is it really in the spec?" answerable by running tests, not by reading prose.
+
+> **VCP-vs-MCP:** A recurring criticism of MCP is that it standardized *discovery and
+> invocation* but left *governance, versioning, and lifecycle* undefined. MCP's 2026
+> work added exactly this (a feature-lifecycle policy, a reverse-DNS extensions
+> framework, conformance-gated Final status). VCP bakes the same governance in from
+> v0.1 — and, because every capability is already content-addressed, version identity
+> is intrinsic rather than bolted on.
+
+---
+
+## 25. Caching and Distributed Tracing
+
+- **Caching.** Discovery documents and `read-only` results **MAY** carry `ttl_ms` and
+  `cache_scope` (modeled on HTTP `Cache-Control`) so clients can cache without a
+  session. A cached manifest or capability index is valid **only while its content
+  hash still matches**; a Gateway **MUST** revalidate by hash before trusting a cached
+  capability, so caching can never resurrect a revoked or mutated capability.
+- **Distributed tracing.** Every invocation and audit event (§20) **SHOULD** propagate
+  [W3C Trace Context](https://www.w3.org/TR/trace-context/) (`traceparent`,
+  `tracestate`) and **MAY** carry `baggage`, so a side effect can be correlated across
+  Host, Gateway, Policy Authority, and Provider in an OpenTelemetry backend.
+
+---
+
+## 26. Multi-Provider Composition and On-Behalf-Of Delegation
+
+A single VCP Gateway routinely fans out to **many** Capability Providers and upstream
+APIs within one user request — read a calendar here, create an issue there, post a
+message somewhere else. This is a first-class, supported operation in VCP, and the
+point at which VCP's trust model pays off most.
+
+> **VCP-vs-MCP:** MCP treats each server connection as an isolated trust relationship.
+> The moment more than one is involved, the documented failure modes — cross-server
+> shadowing and confused-deputy — appear, and the unit of authority is still a
+> per-server token. VCP makes multi-provider orchestration safe *by construction* and
+> fully auditable, while keeping consent at the level of the user's actual intent.
+
+The model rests on five rules.
+
+### 26.1 Per-provider credential brokering (no passthrough)
+
+The Gateway **MUST NOT** forward the user's token to any Provider. For each upstream
+API it performs OAuth 2.0 **Token Exchange ([RFC 8693](https://www.rfc-editor.org/rfc/rfc8693))**
+to obtain a credential that is **audience-bound** to that Provider's resource
+indicator ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)), minimally scoped,
+short-lived, and stamped with an **actor (`act`) claim** naming the agent acting for
+the user. Distinct Providers receive distinct credentials; a credential minted for
+Provider A **MUST** be unusable at Provider B. The raw exchanged token is never
+exposed to the Planner and is held behind the Gateway's egress boundary (§7 secret
+broker).
+
+### 26.2 The on-behalf-of (OBO) delegation chain
+
+Every grant and every audit event **MUST** record an explicit, ordered **delegation
+chain**:
+
+```
+user (authorizer) → planner/agent (delegate) → gateway (enforcer)
+                  → provider (executor) → upstream API (resource)
+```
+
+The chain answers, for any upstream call, *"who authorized this, and on whose behalf
+was it made."* A Provider that acts as a sub-delegate (calling a further upstream)
+**extends** the chain; per §7 it **MAY attenuate but MUST NOT widen** authority, so
+authority strictly narrows as it descends the chain.
+
+### 26.3 One approval, many scoped grants
+
+The user approves the **plan** once — the meaningful cross-service action — and the
+Gateway mints **one single-use, provider-scoped grant per step** under that single
+approval and policy decision. Read-only fan-out runs unattended; **all writes across
+all Providers surface in one plan/apply dry-run diff** (§9), so the user sees the
+entire blast radius at once rather than answering one opaque "Run tool?" prompt per
+server. Consent is **per-intent**; enforcement is **per-call**. This is the
+low-friction property: adding a second or tenth Provider does not add a second or
+tenth consent prompt.
+
+### 26.4 Cross-provider data flow stays governed
+
+Moving Provider A's output into Provider B's input is a **data flow** (§12). The
+Gateway labels it and policy **MAY** forbid e.g. `confidential(A) → external(B)` even
+when A and B are each individually authorized. Cross-server **shadowing** is
+structurally impossible because every binding is to a `capability_id` (§4), never a
+name, so a second Provider cannot impersonate or override the first.
+
+### 26.5 Per-provider auditability
+
+Each upstream call **MUST** emit a signed audit event (§20) carrying the full
+delegation chain, the Provider, the capability hash, the argument hash, the budget
+charged, and the **audience/thumbprint of the exchanged credential by reference**
+(never the token itself). From the append-only record (e.g. `mcp-ledger`) an operator
+can reconstruct exactly which user, via which agent, caused which effect at which
+upstream API, under what budget — across an arbitrary fan-out.
+
+---
+
 ## Appendix A — Conformance summary
 
 - Identity is the contract hash (§4). Approvals bind to identity, never name.
@@ -843,3 +1118,24 @@ Every invocation **MUST** emit a signed audit event, OpenTelemetry-compatible:
   levels that inform VCP's manifest signing and the L4 transparency registry (RFC 0001).
 - **OPA / Cedar** — policy engines that satisfy the §6 decision shape.
 - **OpenTelemetry** — the observability substrate for §20.
+
+## Appendix C — VCP vs MCP (2026-07-28 release candidate)
+
+VCP tracks the good ideas MCP converged on and hardens the trust boundary at each.
+
+| Concern | MCP (2026-07-28 RC) | VCP |
+|---|---|---|
+| Statelessness | Removed session handshake / `Mcp-Session-Id`; any request to any instance | Stateless from v0.1; no implicit sessions (§5.1, §15) |
+| Routing | `Mcp-Method` / `Mcp-Name` headers | `Vcp-Operation` + mandatory `Vcp-Capability` **hash** header (§15) |
+| Async work | Tasks extension: `tasks/get|cancel`, input-required | Tasks as **grant-bound** state handles; cancel = revoke (§21) |
+| Server UIs | MCP Apps: `ui://`, sandboxed iframe, CSP, **optional** hash | Interface capabilities: **mandatory** signing + content-address; every UI action re-enters the grant pipeline (§22) |
+| Sampling | **Deprecated**; use a direct LLM API | Replaced earlier by bounded, policy-gated delegated inference (§13.3) |
+| Tool descriptions | Model-trusted text | Never authority; Gateway-compiled affordance from a signed manifest (§5, §13) |
+| Identity / rug pulls | Registry namespace + stable UUID; code unverified | Content-addressed contract hash: any change is a new, unapproved identity (§4) |
+| Authorization | OAuth 2.1; RFC 9207 `iss` validation; per-call optional | Mandatory per-call **proof-bound single-use grant** (§7); RFC 9207 required (§15) |
+| Local servers | Trusted like installed software | Sandboxed `VCP-Local`; ambient authority is `dev`-only (§14) |
+| Errors | Moved toward JSON-RPC standard codes | Normative **reason-code registry**, remediable by design (§23) |
+| Governance | Feature lifecycle + reverse-DNS extensions + conformance-gated Final | Same governance, plus intrinsic version identity via content-addressing (§24) |
+| Tracing | W3C Trace Context in `_meta`; OTel | W3C Trace Context on every invocation + signed audit event (§20, §25) |
+| Data flow | Not modeled | Taint labels; authority never flows from tainted data; data-flow policy (§12) |
+| Multi-provider | Isolated per-server trust; shadowing/confused-deputy risk | First-class fan-out: per-provider token exchange (RFC 8693), OBO delegation chain, one approval / many scoped grants (§26) |

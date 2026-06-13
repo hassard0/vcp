@@ -35,6 +35,11 @@ RFCs are numbered sequentially with a zero-padded 4-digit prefix
 | [0002](./0002-reproducible-build-provenance.md) | Reproducible-Build Provenance | Draft | §5.2, L4 |
 | [0003](./0003-formal-policy-verification.md) | Formal Policy Verification | Draft | §6, L4 |
 | [0004](./0004-dlp-data-flow-proofs.md) | DLP / Data-Flow Proofs | Draft | §12, §15, L4 |
+| [0005](./0005-mcp-apps-interop.md) | MCP Apps Interoperability (`ui://` bridge) | Draft | §16, §22 |
+| [0006](./0006-async-task-resumability.md) | Async Task Resumability & Replay | Draft | §10, §21 |
+| [0007](./0007-obo-token-exchange.md) | On-Behalf-Of Token Exchange Profile | Draft | §7, §15, §26 |
 
-These four are the items deliberately deferred out of the v0.1 normative core (see
-[`docs/design`](../docs/design)) and are open for discussion.
+RFCs 0001–0004 are items deliberately deferred out of the v0.1 normative core (see
+[`docs/design`](../docs/design)). RFCs 0005–0007 detail the wire mechanics behind the
+`2026-06-13` additions (interface capabilities, async tasks, and multi-provider
+on-behalf-of delegation). All are open for discussion.

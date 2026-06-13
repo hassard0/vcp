@@ -13,6 +13,8 @@
     },
     "trace_id": { "type": "string", "description": "OpenTelemetry trace id." },
     "span_id": { "type": "string" },
+    "traceparent": { "type": "string", "description": "W3C Trace Context traceparent (§25), e.g. 00-<trace-id>-<span-id>-01." },
+    "tracestate": { "type": "string", "description": "W3C Trace Context tracestate (§25)." },
     "subject": { "type": "string" },
     "host": { "type": "string" },
     "model": { "type": "string" },
@@ -24,6 +26,20 @@
     "plan_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "argument_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "grant_id": { "type": "string" },
+    "delegation_chain": {
+      "type": "array",
+      "description": "On-behalf-of chain for this call (§26.2, §26.5): who authorized it and on whose behalf it ran.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "id"],
+        "properties": {
+          "role": { "enum": ["authorizer", "delegate", "enforcer", "executor", "resource"] },
+          "id": { "type": "string" }
+        }
+      }
+    },
+    "credential_audience": { "type": "string", "description": "Audience of the exchanged upstream credential (§26.5), by reference — never the token." },
     "decision": { "enum": ["allow", "deny", "challenge"] },
     "reason_code": { "type": "string" },
     "effect": {
