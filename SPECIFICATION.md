@@ -101,10 +101,51 @@ requirement that MCP leaves optional, advisory, or undefined.
 - **Attestation** — a Provider-signed record of an execution's inputs, outputs, and
   committed effect (§9, §10).
 - **Taint label** — a classification attached to every datum entering or leaving the
-  Planner (§13).
+  Planner (§12).
 - **State handle** — an explicit, typed, expiring reference to cross-call state
   (§5.1, replaces implicit sessions).
-- **Effect class / Determinism class** — declared execution semantics (§11, §12).
+- **Effect class / Determinism class** — declared execution semantics (§11, §10).
+
+### 1.3 The Safety Contract (normative invariants)
+
+VCP exists to make one thing true: **a language model can drive tool calls without
+being trusted to do so safely.** The following invariants are the guarantee every
+conformant implementation **MUST** preserve. The rest of this document is *how*; these
+are *what*. An implementation that upholds all ten is safe even if every other detail
+is implemented differently; an implementation that violates any one is non-conformant
+no matter how faithfully it follows the prose.
+
+- **INV-1 — No unauthorized effect.** No capability produces a side effect except
+  under a valid grant the Gateway minted after a policy `allow` (§6, §7).
+- **INV-2 — Identity integrity.** A grant authorizes exactly the capability whose
+  `capability_id` (contract hash) the Gateway verified; any change to the contract is
+  a *different* capability (§4).
+- **INV-3 — Argument integrity.** A grant authorizes exactly the arguments whose
+  `argument_hash` it carries; changing any argument invalidates it (§7, §8).
+- **INV-4 — Single use.** A grant authorizes at most `max_calls` executions
+  (default 1) within its time window (§7).
+- **INV-5 — Approval for writes.** A `write-reversible` or `write-irreversible` effect
+  executes only after explicit approval of the exact dry-run effect, bound to
+  `plan_hash` (§9).
+- **INV-6 — Non-authoritative data.** No authority ever derives from data labeled
+  `untrusted_*`. The Planner may *propose* on the basis of such data; it can never
+  *authorize* on it (§12).
+- **INV-7 — No ambient authority.** A capability receives only the filesystem,
+  network, secrets, and credentials its grant scopes — nothing of the host's ambient
+  authority, and no Provider's credential is reusable at another (§14, §26).
+- **INV-8 — The Planner holds no authority.** The Planner (the LLM) emits only
+  proposals — plans and elicitation responses — and receives only tainted results and
+  Gateway-compiled affordances. It never receives secrets, grants, raw Provider
+  instructions, or any means to mint authority.
+- **INV-9 — Everything is auditable.** Every decision and side effect emits a signed
+  audit event sufficient to reconstruct who acted, on whose behalf, on what, and why
+  (§20, §26.5).
+- **INV-10 — Fail closed.** Any failure to verify, authorize, attest, or bind yields
+  no grant and no effect (§19).
+
+> These invariants are testable. The §18 security suite exists to falsify them; a
+> conformance vector that an implementation cannot reproduce is an invariant it does
+> not uphold.
 
 ---
 
@@ -134,6 +175,40 @@ itself. Four structural problems follow.
 VCP removes each by construction: descriptions are not instructions (§5, §13);
 authority is a single-use proof-bound grant (§7); local execution is sandboxed and
 signed (§14); and there are no implicit sessions (§5.1).
+
+### 2.1 The Gateway evaluation pipeline (the implementer's map)
+
+For **one** proposed capability invocation, a Gateway **MUST** evaluate the following
+steps **in this order**, stopping at the first failure and emitting the named
+`reason_code` (§23). This ordering is **normative**: two conformant implementations
+presented with the same failing call **MUST** deny it with the same `reason_code`.
+Everything else in this document elaborates one of these steps; an implementer can
+treat this as the build checklist.
+
+```
+ 1. Verify manifest          signature + contract_hash == id + issuer trust + revocation
+                             → MANIFEST_UNVERIFIED | ISSUER_UNTRUSTED | CAPABILITY_REVOKED        (§4,§5)
+ 2. Validate arguments       against input_schema, additionalProperties:false
+                             → SCHEMA_VALIDATION_FAILED | ADDITIONAL_PROPERTY                      (§5,§8)
+ 3. Canonicalize & hash      compute argument_hash, plan_hash (JCS, §3)
+ 4. Taint / authority        authority must not derive from untrusted_* data
+                             → AUTHORITY_FROM_TAINTED_DATA                                          (§12)
+ 5. Policy decision          incl. data-flow + budget
+                             → DATA_FLOW_FORBIDDEN | BUDGET_EXCEEDED | APPROVAL_REQUIRED | deny     (§6)
+ 6. Plan/apply (writes)      dry-run, then approval bound to plan_hash
+                             → PLAN_NOT_APPROVED                                                    (§9)
+ 7. Attestation (if required) verify environment attestation
+                             → ATTESTATION_REQUIRED | ATTESTATION_INVALID                           (§27)
+ 8. Mint grant              bind audience, argument_hash, plan_hash, expiry, max_calls, PoP, OBO   (§7,§26)
+ 9. Invoke provider          within grant scope; Provider re-verifies the grant                    (§8)
+10. Verify result attestation
+                             → ATTESTATION_INVALID                                                  (§9)
+11. Audit & return           emit signed audit event; return the tainted result to the Planner     (§20)
+```
+
+Steps 1–7 are pure decision (no effect); the first effect is possible only at step 9,
+after a grant exists. This is the operational form of INV-1 and INV-10: nothing
+happens until everything has passed, and any failure stops the pipeline with no grant.
 
 ---
 
@@ -166,6 +241,33 @@ Rules:
 5. Hash comparisons **MUST** be constant-time. Identifier comparisons **MUST** be
    exact byte-for-byte; no normalization, case-folding, or Unicode equivalence is
    permitted at compare time (canonicalization already happened at hash time).
+6. **Numbers.** JSON values that are hashed or signed **SHOULD** conform to I-JSON
+   ([RFC 7493](https://www.rfc-editor.org/rfc/rfc7493)). JCS number serialization for
+   non-integer values is the one genuinely error-prone part of canonicalization, so in
+   v0.1 a Gateway **MAY** reject a contract or argument object containing a non-integer
+   JSON number (`SCHEMA_VALIDATION_FAILED`) rather than risk a cross-implementation
+   hash mismatch. Integers **MUST** serialize with no decimal point and no exponent
+   (`42`, never `42.0` or `4.2e1`). A capability that genuinely needs decimals
+   **SHOULD** carry them as strings with a declared scale.
+
+### 3.1 Hash-exclusion table (normative)
+
+Several documents embed their own signature or identity. The fields excluded **before**
+canonicalizing for the hash or signature are fixed per document type. Excluding a
+different set is the most common cause of a verifier rejecting a valid signature, so
+the set is normative:
+
+| Document | Excluded before hashing / signing |
+|---|---|
+| Manifest (signature) | `signature` |
+| Contract (identity, §4.1) | everything except the eight contract fields — see §4.1 |
+| Grant | `gateway_signature` |
+| Result attestation (§9) | `attestation.provider_signature` |
+| Environment statement (§27) | `signature` |
+| Audit event (§20) | `signature` |
+
+A verifier recomputes the hash/signature over `JCS(document)` with exactly these
+fields removed, then compares (rule 5).
 
 ---
 
@@ -194,6 +296,46 @@ contract_hash = sha256(JCS(contract))
 A Gateway **MUST** treat two capabilities with different `contract_hash` values as
 distinct, even if their `name` is identical. Approvals, grants, and policy decisions
 **MUST** bind to `capability_id`, never to `name` alone.
+
+### 4.1 Exact contract construction (normative)
+
+Because identity is the single most security-critical computation in VCP — and the
+one most easily implemented two subtly different ways — the contract is constructed
+**exactly** as follows, with no latitude:
+
+The **contract** is the JSON object containing precisely these **eight** members,
+copied verbatim from the manifest, and **no others**:
+
+```
+{ issuer, name, version, input_schema, output_schema, effects, determinism, sandbox }
+```
+
+`issuer` is the top-level manifest `issuer`; the other seven are taken from
+`capability.*`. Each is included whole (the full sub-object, including nested fields
+such as `effects.requires_attestation`). Then:
+
+```
+contract_hash = "sha256:" + hex(SHA-256(JCS(contract)))
+capability_id = "vcp:cap:" + name + "@" + contract_hash
+```
+
+Notes that eliminate the common ambiguities:
+
+- Because JCS sorts object keys, the **order** in which these members are written is
+  irrelevant — only the member **set** and their **values** affect the hash. An
+  implementation that lists the fields in a different order still computes the same
+  identity.
+- `capability.id` and `capability.contract_hash` are **not** part of the contract
+  (they embed the result, §3 rule 3). `summary_for_user`, `summary_for_model`,
+  `provenance`, `interface`, and `signature` are **not** part of the contract.
+- Changing any of the eight — a schema field, an effect class, a sandbox allowlist
+  entry, an attestation requirement — yields a different `contract_hash` and therefore
+  a new, unapproved capability (INV-2).
+
+A worked, regenerable ground-truth example (the `calendar.create_event` contract and
+its `sha256:6706…` hash) is published as the `capability-identity` conformance vector
+in [`vcp-servers/conformance`](https://github.com/hassard0/vcp-servers); a new
+implementation **SHOULD** reproduce it byte-for-byte before trusting its hashing.
 
 ---
 
@@ -427,6 +569,32 @@ Provider needs an upstream secret (e.g. an OAuth token for `calendar.example.com
 the Gateway's **secret broker** (§14) injects it bound to this grant's scope; the
 raw secret **MUST NOT** be exposed to the Planner and **SHOULD NOT** be exposed to
 Provider code beyond the egress boundary that needs it.
+
+### 7.1 Grant verification order and time semantics (normative)
+
+When a grant is presented for an invocation, the Gateway (and the Provider, §8)
+**MUST** check it in this order, stopping at the first failure with the named
+`reason_code`. A fixed order is what lets two implementations agree on *why* a call
+was refused, not just *that* it was:
+
+```
+1. audience == capability_id            else AUDIENCE_MISMATCH
+2. argument_hash matches the call        else ARGUMENT_HASH_MISMATCH
+3. plan_hash matches the approved plan    else PLAN_NOT_APPROVED
+4. prior-use count < max_calls            else MAX_CALLS_EXCEEDED
+5. not revoked                            else GRANT_REVOKED
+6. now < expires_at                       else GRANT_EXPIRED
+7. proof-of-possession proof is valid     else (transport-level rejection)
+```
+
+**Time semantics.** A grant is valid **iff `now < expires_at`**; it is expired the
+instant `now >= expires_at` (half-open interval). All times are RFC 3339 / ISO 8601
+in UTC unless an explicit offset is given. "Prior-use count" is the number of
+*committed* invocations already made under the grant (0 on first use), so the test
+`prior_use < max_calls` admits exactly `max_calls` uses.
+
+These rules are exercised by the `grant-rules` conformance vector; an implementation
+that reproduces it is ordering its checks correctly.
 
 ---
 
@@ -1086,6 +1254,13 @@ was it made."* A Provider that acts as a sub-delegate (calling a further upstrea
 **extends** the chain; per §7 it **MAY attenuate but MUST NOT widen** authority, so
 authority strictly narrows as it descends the chain.
 
+A child scope that is **not a subset** of its parent is a widening and **MUST** be
+rejected. In this revision the rejection `reason_code` is `AUDIENCE_MISMATCH` — the
+sub-delegate is, in effect, requesting authority the parent grant does not name. (A
+future revision MAY introduce a dedicated `SCOPE_WIDENED` code; implementations that
+distinguish the case today SHOULD still deny.) Subset is evaluated over the grant's
+`resource_scope` and `network` sets.
+
 ### 26.3 One approval, many scoped grants
 
 The user approves the **plan** once — the meaningful cross-service action — and the
@@ -1113,6 +1288,75 @@ charged, and the **audience/thumbprint of the exchanged credential by reference*
 (never the token itself). From the append-only record (e.g. `mcp-ledger`) an operator
 can reconstruct exactly which user, via which agent, caused which effect at which
 upstream API, under what budget — across an arbitrary fan-out.
+
+---
+
+---
+
+## 27. Environment and Workload Attestation
+
+Two different things are called "attestation" in VCP; they are distinct:
+
+- **Result attestation (§9)** attests *what a call did* — a Provider signs its output,
+  effect, and observed refs. Always present, cheap.
+- **Environment attestation (this section)** attests *what an actor is* — that a
+  Gateway, Provider, or Agent is running the genuine, unmodified code it claims, in
+  the environment it claims. This closes the gap noted in §19 / RFC 0002: a
+  self-hosted Provider's declared `build_digest` is otherwise only an assertion.
+
+> **Friction is the explicit design constraint.** Environment attestation is **off by
+> default**, **attest-once / reference-many**, and **layered**, so it adds nothing to
+> the common path and only as much as policy actually demands.
+
+### 27.1 Optional and negotiated
+
+An actor attests its environment **only** when a capability manifest sets
+`effects.requires_attestation: true`, or a policy decision returns an `attest`
+obligation. By default no actor attests and there is **zero** added round-trip.
+
+### 27.2 Attest-once, reference-many
+
+An actor attests at boot or session start. The Gateway caches the verified result
+keyed by the actor's key and a `boot_epoch`. Per-call envelopes carry only a small
+`attestation_ref` (an id + the nonce it was bound to) — full evidence is **never**
+re-transmitted per call.
+
+### 27.3 Two tiers
+
+- **`statement`** (default-capable; no special hardware) — a signed **Environment
+  Statement**: `{ subject_role, issuer, build_digest, container_digest, boot_epoch,
+  nonce, expires_at, signature }`. It requires only the Ed25519 key the actor already
+  has, proves key continuity and the claimed build, and suffices for L2/L3.
+- **`tee`** (L4) — hardware remote-attestation evidence following the RATS
+  architecture ([RFC 9334](https://www.rfc-editor.org/rfc/rfc9334)): an Attester
+  produces Evidence, a Verifier appraises it to an Attestation Result. Detailed in
+  RFC 0008.
+
+Attestable roles: `gateway`, `provider`, `agent`.
+
+### 27.4 Verification (RATS mapping)
+
+The **Gateway is the Verifier**; **policy is the Relying Party**. When attestation is
+required, the Gateway **MUST**:
+
+1. issue a fresh `nonce` and verify the statement is bound to it (freshness;
+   anti-replay);
+2. verify the signature and that `build_digest` / `container_digest` are in the trust
+   set (or match the manifest provenance, RFC 0002), and that the statement is unexpired;
+3. on failure, deny with `ATTESTATION_REQUIRED` (missing) or `ATTESTATION_INVALID`
+   (present but bad) and **mint no grant**;
+4. record the attestation result **by reference** in the audit event (§20).
+
+Provider attestation gates grant minting for capabilities that require it. Agent
+attestation lets policy decide on a **verified** planner identity rather than a
+self-asserted one. Gateway attestation lets a Provider or Host verify the enforcing
+layer itself.
+
+> **VCP-vs-MCP:** MCP has no notion of attesting the runtime integrity of servers or
+> clients — local servers are "trusted like installed software." VCP makes runtime
+> attestation a first-class but **optional, layered** control: nothing on the common
+> path, a cheap key-based statement when policy wants assurance, and hardware-backed
+> evidence when an L4 deployment demands it.
 
 ---
 
@@ -1199,67 +1443,32 @@ complete per-call who-on-whose-behalf audit trail.
 
 ---
 
-## 27. Environment and Workload Attestation
+## Appendix E — Minimal conformant Gateway (implementer's checklist)
 
-Two different things are called "attestation" in VCP; they are distinct:
+VCP is large because it is thorough, but a *useful, safe* Gateway is small. The
+minimum that upholds the §1.3 invariants — a **VCP-L2** Gateway — is this, and nothing
+more is required to start:
 
-- **Result attestation (§9)** attests *what a call did* — a Provider signs its output,
-  effect, and observed refs. Always present, cheap.
-- **Environment attestation (this section)** attests *what an actor is* — that a
-  Gateway, Provider, or Agent is running the genuine, unmodified code it claims, in
-  the environment it claims. This closes the gap noted in §19 / RFC 0002: a
-  self-hosted Provider's declared `build_digest` is otherwise only an assertion.
+1. **Canonical JSON + SHA-256** (§3). Get the `capability-identity` vector to pass
+   first; everything else depends on it.
+2. **Manifest verification** (§4, §4.1): verify the signature, recompute the contract
+   hash, confirm it equals `capability_id`, check the issuer is trusted.
+3. **Strict argument validation** (§5, §8): the capability's `input_schema` with
+   `additionalProperties:false`.
+4. **The evaluation pipeline** (§2.1) in order, emitting the right `reason_code` at
+   each step.
+5. **Grants** (§7, §7.1): mint single-use, audience/argument/plan-bound grants with an
+   expiry; verify them in the §7.1 order.
+6. **Plan/apply for writes** (§9): dry-run, approve the exact `plan_hash`, then invoke.
+7. **Taint** (§12): never let authority derive from `untrusted_*` data.
+8. **Signed audit events** (§20).
 
-> **Friction is the explicit design constraint.** Environment attestation is **off by
-> default**, **attest-once / reference-many**, and **layered**, so it adds nothing to
-> the common path and only as much as policy actually demands.
+Everything beyond that is opt-in and layered: per-provider OBO (§26), tasks (§21),
+interfaces (§22), environment attestation (§27), and the L3/L4 assurances are all
+**off until a manifest or policy asks for them**, so they add no cost to the minimal
+loop. An implementer can ship step 1–8, pass the core conformance vectors, and grow
+into the rest. The four reference implementations in
+[`vcp-servers`](https://github.com/hassard0/vcp-servers) are exactly this shape and
+are the canonical worked answer.
 
-### 27.1 Optional and negotiated
-
-An actor attests its environment **only** when a capability manifest sets
-`effects.requires_attestation: true`, or a policy decision returns an `attest`
-obligation. By default no actor attests and there is **zero** added round-trip.
-
-### 27.2 Attest-once, reference-many
-
-An actor attests at boot or session start. The Gateway caches the verified result
-keyed by the actor's key and a `boot_epoch`. Per-call envelopes carry only a small
-`attestation_ref` (an id + the nonce it was bound to) — full evidence is **never**
-re-transmitted per call.
-
-### 27.3 Two tiers
-
-- **`statement`** (default-capable; no special hardware) — a signed **Environment
-  Statement**: `{ subject_role, issuer, build_digest, container_digest, boot_epoch,
-  nonce, expires_at, signature }`. It requires only the Ed25519 key the actor already
-  has, proves key continuity and the claimed build, and suffices for L2/L3.
-- **`tee`** (L4) — hardware remote-attestation evidence following the RATS
-  architecture ([RFC 9334](https://www.rfc-editor.org/rfc/rfc9334)): an Attester
-  produces Evidence, a Verifier appraises it to an Attestation Result. Detailed in
-  RFC 0008.
-
-Attestable roles: `gateway`, `provider`, `agent`.
-
-### 27.4 Verification (RATS mapping)
-
-The **Gateway is the Verifier**; **policy is the Relying Party**. When attestation is
-required, the Gateway **MUST**:
-
-1. issue a fresh `nonce` and verify the statement is bound to it (freshness;
-   anti-replay);
-2. verify the signature and that `build_digest` / `container_digest` are in the trust
-   set (or match the manifest provenance, RFC 0002), and that the statement is unexpired;
-3. on failure, deny with `ATTESTATION_REQUIRED` (missing) or `ATTESTATION_INVALID`
-   (present but bad) and **mint no grant**;
-4. record the attestation result **by reference** in the audit event (§20).
-
-Provider attestation gates grant minting for capabilities that require it. Agent
-attestation lets policy decide on a **verified** planner identity rather than a
-self-asserted one. Gateway attestation lets a Provider or Host verify the enforcing
-layer itself.
-
-> **VCP-vs-MCP:** MCP has no notion of attesting the runtime integrity of servers or
-> clients — local servers are "trusted like installed software." VCP makes runtime
-> attestation a first-class but **optional, layered** control: nothing on the common
-> path, a cheap key-based statement when policy wants assurance, and hardware-backed
-> evidence when an L4 deployment demands it.
+---

@@ -15,6 +15,30 @@ prose and ship in the same revision.
 
 Collecting feedback on the Draft RFC; open RFCs tracked in [`rfcs/`](./rfcs/).
 
+### Clarified (implementation-informed; no behavior change)
+
+Refinements drawn from implementing the spec in four languages — they pin down what
+implementers previously had to infer, so independent implementations stay consistent.
+No conformance vector changed.
+
+- **§1.3 The Safety Contract** — the ten normative invariants (INV-1…INV-10) every
+  conformant implementation must preserve, stating the intent (a model can drive tool
+  calls without being trusted to do so safely) as a testable property.
+- **§2.1 The Gateway evaluation pipeline** — the normative *ordered* sequence a Gateway
+  runs for one call, so two implementations deny the same call with the same
+  `reason_code`. Doubles as the build checklist.
+- **§3.1 Hash-exclusion table** + number-handling rule — removes the most common cause
+  of cross-implementation hash/signature mismatches.
+- **§4.1 Exact contract construction** — the identity algorithm pinned to the exact
+  eight fields, with the published ground-truth vector as the reference.
+- **§7.1 Grant verification order and time semantics** — fixed check order and the
+  half-open expiry interval (`now < expires_at`).
+- **§26.2** — a widening attenuation is denied with `AUDIENCE_MISMATCH` (pending a
+  possible future `SCOPE_WIDENED`).
+- **Appendix E — Minimal conformant Gateway** — the smallest L2 loop (8 steps) that
+  upholds the invariants; everything else is opt-in and off by default.
+- Fixed two stale cross-references in §1.2; moved §27 ahead of the appendices.
+
 ## [2026-06-13] — MCP-informed hardening
 
 Protocol revision `2026-06-13`. Additive expansion folding in the good ideas MCP
